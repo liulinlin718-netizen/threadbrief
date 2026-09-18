@@ -1,0 +1,6 @@
+{
+  "threadId": "12345678-1234-4234-8234-123456789abc",
+  "title": "Example task",
+  "hostId": "local",
+  "accountScope": "example-local-profile"
+}

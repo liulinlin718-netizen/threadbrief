@@ -1,0 +1,241 @@
+<style>
+#thread-config-preview {
+  --tp-surface: light-dark(#ffffff, #222326); --tp-soft: light-dark(#f3f4f6, #2d2f33);
+  --tp-text: light-dark(#26282e, #eceef3); --tp-muted: light-dark(#6b707b, #aeb3bd);
+  --tp-line: light-dark(#e6e8ed, #3a3d44); --tp-blue: light-dark(#3781ff, #478dff);
+  --tp-off: light-dark(#d9dde5, #515761); --tp-knob: light-dark(#ffffff, #ffffff);
+  --tp-shadow: light-dark(#2028380a, #00000020); --tp-notice: light-dark(#3067b5, #99bcff);
+  width: 100%; color: var(--tp-text); font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; background: transparent;
+}
+#thread-config-preview * { box-sizing: border-box; }
+#thread-config-preview [hidden] { display: none !important; }
+#thread-config-preview button, #thread-config-preview select, #thread-config-preview textarea { font: inherit; color: inherit; }
+#thread-config-preview .tp-wrap { width: 100%; max-width: 400px; }
+#thread-config-preview .tp-demo { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; padding: 0 2px; font-size: 11px; color: var(--tp-muted); }
+#thread-config-preview .tp-demo select { padding: 3px 0; max-width: 155px; border: 0; background: transparent; color: var(--tp-muted); font-size: 11px; min-width: 0; }
+#thread-config-preview .tp-card { background: var(--tp-surface); border: 1px solid var(--tp-line); border-radius: 14px; box-shadow: 0 3px 14px var(--tp-shadow); }
+#thread-config-preview .tp-bar { display: flex; align-items: center; gap: 8px; width: 100%; height: 40px; padding: 9px 14px; border: 0; border-radius: 14px; background: transparent; text-align: left; cursor: pointer; }
+#thread-config-preview .tp-bar strong { font-weight: 500; white-space: nowrap; }
+#thread-config-preview .tp-summary { margin-left: auto; color: var(--tp-muted); font-size: 11px; }
+#thread-config-preview .tp-expand { color: var(--tp-muted); font-size: 11px; }
+#thread-config-preview .tp-content { padding: 0 14px 12px; }
+#thread-config-preview .tp-scope { margin: 1px 0 12px; color: var(--tp-muted); font-size: 11px; }
+#thread-config-preview .tp-tabs { display: flex; gap: 3px; padding: 3px; margin-bottom: 12px; border-radius: 8px; background: var(--tp-soft); }
+#thread-config-preview .tp-tab { flex: 1; border: 0; border-radius: 6px; background: transparent; padding: 6px 8px; color: var(--tp-muted); cursor: pointer; }
+#thread-config-preview .tp-tab[aria-pressed="true"] { background: var(--tp-surface); color: var(--tp-text); box-shadow: 0 1px 3px var(--tp-shadow); }
+#thread-config-preview .tp-categories { display: flex; gap: 6px; border-bottom: 1px solid var(--tp-line); }
+#thread-config-preview .tp-category { flex: 1; min-width: 0; background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 4px 4px 9px; color: var(--tp-muted); cursor: pointer; font-size: 12px; }
+#thread-config-preview .tp-category[aria-pressed="true"] { color: var(--tp-text); border-bottom-color: var(--tp-text); font-weight: 500; }
+#thread-config-preview .tp-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; gap: 10px; align-items: center; padding: 7px 0; min-height: 58px; border-bottom: 1px solid var(--tp-line); }
+#thread-config-preview .tp-row:last-child { border-bottom: 0; }
+#thread-config-preview .tp-name { font-weight: 500; cursor: pointer; }
+#thread-config-preview .tp-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 3px; }
+#thread-config-preview .tp-detail { font-size: 11px; color: var(--tp-muted); overflow-wrap: anywhere; }
+#thread-config-preview .tp-revert { background: transparent; border: 0; padding: 0; cursor: pointer; font-size: 11px; color: var(--tp-muted); text-decoration: underline; text-underline-offset: 3px; }
+#thread-config-preview .tp-switch { position: relative; display: grid; place-items: center; width: 44px; height: 44px; cursor: pointer; }
+#thread-config-preview .tp-switch input { position: absolute; width: 40px; height: 24px; inset: 10px 2px; opacity: 0; margin: 0; cursor: pointer; }
+#thread-config-preview .tp-track { display: block; width: 40px; height: 24px; border-radius: 20px; background: var(--tp-off); pointer-events: none; transition: background .15s ease; }
+#thread-config-preview .tp-track::after { content: ""; display: block; width: 20px; height: 20px; margin: 2px; border-radius: 50%; background: var(--tp-knob); box-shadow: 0 1px 2px var(--tp-shadow); transform: translateX(0); transition: transform .15s ease; }
+#thread-config-preview .tp-switch input:checked + .tp-track { background: var(--tp-blue); }
+#thread-config-preview .tp-switch input:checked + .tp-track::after { transform: translateX(16px); }
+#thread-config-preview .tp-switch:focus-within { outline: auto; outline-offset: 2px; border-radius: 7px; }
+#thread-config-preview .tp-switch:has(input:disabled) { opacity: .48; cursor: not-allowed; }
+#thread-config-preview .tp-switch input:disabled { cursor: not-allowed; }
+#thread-config-preview .tp-field { display: grid; gap: 5px; margin-bottom: 12px; font-size: 12px; }
+#thread-config-preview textarea { width: 100%; min-width: 0; border: 1px solid var(--tp-line); border-radius: 8px; background: var(--tp-surface); padding: 8px 10px; resize: vertical; font-size: 13px; }
+#thread-config-preview textarea::placeholder { color: var(--tp-muted); }
+#thread-config-preview .tp-actions { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--tp-line); }
+#thread-config-preview .tp-button { padding: 6px 9px; border: 1px solid var(--tp-line); background: var(--tp-surface); border-radius: 7px; font-size: 12px; cursor: pointer; }
+#thread-config-preview .tp-button:disabled { opacity: .45; cursor: default; }
+#thread-config-preview .tp-reset { padding-left: 0; border: 0; color: var(--tp-muted); }
+#thread-config-preview .tp-apply { margin-left: auto; background: var(--tp-text); color: var(--tp-surface); border-color: var(--tp-text); }
+#thread-config-preview .tp-status { margin-top: 8px; font-size: 11px; color: var(--tp-notice); overflow-wrap: anywhere; }
+#thread-config-preview[data-density="relaxed"] .tp-row { padding-top: 12px; padding-bottom: 12px; }
+@media (prefers-reduced-motion: reduce) { #thread-config-preview .tp-track, #thread-config-preview .tp-track::after { transition: none; } }
+@media (pointer: coarse) {
+  #thread-config-preview button, #thread-config-preview select { min-height: 44px; }
+  #thread-config-preview textarea, #thread-config-preview select { font-size: 16px; }
+  #thread-config-preview .tp-demo { flex-wrap: wrap; }
+}
+</style>
+<div id="thread-config-preview" data-density="compact" aria-label="线程配置卡预览">
+  <div class="tp-wrap">
+    <div class="tp-demo"><span>交互预览 · 示例任务</span><select id="tp-thread" aria-label="切换示例任务"><option value="parent">主线程</option><option value="review" selected>子线程 A · 审阅</option><option value="research">子线程 B · 研究</option></select></div>
+    <section class="tp-card">
+      <button id="tp-toggle" type="button" class="tp-bar" aria-expanded="true" aria-controls="tp-content"><strong>线程配置</strong><span id="tp-summary" class="tp-summary">沿用默认</span><span id="tp-expand" class="tp-expand" aria-hidden="true">收起</span></button>
+      <div id="tp-content" class="tp-content">
+        <div class="tp-scope">仅当前示例线程 · 未连接真实 Codex 配置</div>
+        <div class="tp-tabs" role="group" aria-label="配置内容">
+          <button type="button" class="tp-tab" data-pane-button="profile" aria-pressed="false" aria-controls="tp-profile-panel">人设与背景</button>
+          <button type="button" class="tp-tab" data-pane-button="capabilities" aria-pressed="true" aria-controls="tp-capabilities-panel">能力</button>
+        </div>
+        <div id="tp-profile-panel" hidden>
+          <label class="tp-field" for="tp-persona">人设<textarea id="tp-persona" maxlength="500" rows="2" placeholder="留空沿用原 Agent，例如：注重证据的审阅搭档"></textarea></label>
+          <label class="tp-field" for="tp-background">长期背景<textarea id="tp-background" maxlength="1000" rows="3" placeholder="这个线程需要持续记住的目标、偏好与背景"></textarea></label>
+        </div>
+        <div id="tp-capabilities-panel">
+          <div class="tp-categories" role="group" aria-label="能力分类">
+            <button type="button" class="tp-category" data-kind-button="skill" aria-pressed="true">Skills</button>
+            <button type="button" class="tp-category" data-kind-button="mcp" aria-pressed="false">MCP</button>
+            <button type="button" class="tp-category" data-kind-button="plugin" aria-pressed="false">插件</button>
+            <button type="button" class="tp-category" data-kind-button="app" aria-pressed="false">应用</button>
+          </div>
+          <div id="tp-capabilities"></div>
+        </div>
+        <div class="tp-actions">
+          <button type="button" id="tp-reset" class="tp-button tp-reset" disabled>恢复默认</button>
+          <button type="button" id="tp-cancel" class="tp-button">取消</button>
+          <button type="button" id="tp-apply" class="tp-button tp-apply" disabled>仅此线程应用</button>
+        </div>
+        <div id="tp-status" class="tp-status" aria-live="polite">沿用原配置 · 未新增任何覆盖</div>
+      </div>
+    </section>
+  </div>
+</div>
+<script>
+(() => {
+  "use strict";
+  const root = document.getElementById("thread-config-preview");
+  const $ = id => root.querySelector(`#${id}`);
+  const threadIds = ["parent", "review", "research"];
+  const catalog = [
+    { id: "research", name: "证据研究", kind: "skill", defaultOn: true, parent: "toolkit" },
+    { id: "review", name: "审阅助手", kind: "skill", defaultOn: false },
+    { id: "writing", name: "写作技能", kind: "skill", defaultOn: false, blocked: "未安装" },
+    { id: "github", name: "GitHub MCP", kind: "mcp", defaultOn: true, parent: "toolkit" },
+    { id: "browser", name: "浏览器 MCP", kind: "mcp", defaultOn: false, blocked: "宿主未开放" },
+    { id: "toolkit", name: "研究工具包", kind: "plugin", defaultOn: true },
+    { id: "drive", name: "Drive", kind: "app", defaultOn: false, parent: "toolkit", blocked: "未授权" }
+  ];
+  const byCapability = new Map(catalog.map(item => [item.id, item]));
+  const blank = () => ({ persona: "", background: "", overrides: {} });
+  const clone = value => JSON.parse(JSON.stringify(value));
+  let states = Object.fromEntries(threadIds.map(id => [id, blank()]));
+  const drafts = new Map();
+  const notices = new Map();
+  const controls = new Map();
+  let active = "review", expanded = true, pane = "capabilities", category = "skill";
+  const writer = globalThis.crypto?.randomUUID?.() || `preview-${Math.random().toString(36).slice(2)}`;
+  let sequence = 0, storageNotice = "";
+  const current = () => states[active];
+  const draft = () => { if (!drafts.has(active)) drafts.set(active, clone(current())); return drafts.get(active); };
+  const comparable = value => JSON.stringify([value.persona, value.background, ...catalog.map(item => value.overrides[item.id] || "inherit")]);
+  const changed = () => comparable(draft()) !== comparable(current());
+  const hasOverrides = value => Boolean(value.persona || value.background || Object.keys(value.overrides).length);
+  function result(item, config) {
+    const parent = item.parent ? byCapability.get(item.parent) : null;
+    const desired = config.overrides[item.id] || "inherit";
+    const requested = desired === "on" || (desired === "inherit" && (item.defaultOn || (parent && config.overrides[parent.id] === "on")));
+    const blocked = item.blocked || (parent && !result(parent, config).effective ? "研究工具包已关闭" : "");
+    return { desired, blocked, effective: Boolean(requested && !blocked) };
+  }
+  function cleanConfig(value) {
+    if (!value || typeof value.persona !== "string" || value.persona.length > 500 || typeof value.background !== "string" || value.background.length > 1000 || !value.overrides || typeof value.overrides !== "object") return null;
+    const clean = { persona: value.persona, background: value.background, overrides: {} };
+    for (const item of catalog) if (["on", "off"].includes(value.overrides[item.id])) clean.overrides[item.id] = value.overrides[item.id];
+    return clean;
+  }
+  function restore(value) {
+    const saved = value?.privateContent;
+    if (!saved || saved.format !== "thread-config-preview-v1" || !saved.states || saved.writer === writer) return false;
+    const next = {};
+    for (const id of threadIds) { const entry = cleanConfig(saved.states[id]); if (!entry) return false; next[id] = entry; }
+    states = next; drafts.clear(); notices.clear(); storageNotice = "";
+    active = threadIds.includes(saved.active) ? saved.active : "review";
+    pane = ["profile", "capabilities"].includes(saved.pane) ? saved.pane : "capabilities";
+    category = ["skill", "mcp", "plugin", "app"].includes(saved.category) ? saved.category : "skill";
+    expanded = saved.expanded !== false;
+    return true;
+  }
+  function saveView() {
+    // This is UI-only persistence. Opening and editing the card must not supply
+    // model-visible instructions, call a tool, or modify any real task settings.
+    const envelope = { modelContent: null, privateContent: {
+      format: "thread-config-preview-v1", writer, sequence: ++sequence,
+      active, pane, category, expanded, states: clone(states)
+    } };
+    if (new TextEncoder().encode(JSON.stringify(envelope)).length >= 16000) {
+      storageNotice = "内容较长，仅在当前页面保留"; renderStatus(); return;
+    }
+    if (typeof window.openai?.setWidgetState === "function") {
+      try { Promise.resolve(window.openai.setWidgetState(envelope)).catch(() => { storageNotice = "保存未确认，当前页面仍可继续使用"; renderStatus(); }); }
+      catch { storageNotice = "仅在当前页面保留"; renderStatus(); }
+    }
+  }
+  function renderStatus() {
+    $("tp-summary").textContent = changed() ? "有未应用修改" : hasOverrides(current()) ? "已修改 · 仅此线程" : "沿用默认";
+    $("tp-apply").disabled = !changed();
+    $("tp-reset").disabled = !hasOverrides(draft());
+    $("tp-status").textContent = changed() ? "草稿未应用 · 仅保留在当前示例线程" : storageNotice || notices.get(active) || (hasOverrides(current()) ? "已应用到当前示例 · 不影响真实配置" : "沿用原配置 · 未新增任何覆盖");
+  }
+  function render() {
+    $("tp-thread").value = active;
+    $("tp-content").hidden = !expanded;
+    $("tp-toggle").setAttribute("aria-expanded", String(expanded));
+    $("tp-expand").textContent = expanded ? "收起" : "展开";
+    $("tp-profile-panel").hidden = pane !== "profile";
+    $("tp-capabilities-panel").hidden = pane !== "capabilities";
+    root.querySelectorAll("[data-pane-button]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.paneButton === pane)));
+    root.querySelectorAll("[data-kind-button]").forEach(button => button.setAttribute("aria-pressed", String(button.dataset.kindButton === category)));
+    $("tp-persona").value = draft().persona;
+    $("tp-background").value = draft().background;
+    for (const item of catalog) {
+      const nodes = controls.get(item.id), resolved = result(item, draft());
+      nodes.row.hidden = item.kind !== category;
+      nodes.toggle.checked = resolved.effective;
+      nodes.toggle.disabled = Boolean(resolved.blocked);
+      nodes.toggle.dataset.preference = resolved.desired;
+      nodes.reset.hidden = resolved.desired === "inherit";
+      const origin = resolved.desired === "inherit" ? "沿用默认" : "此线程修改";
+      nodes.detail.textContent = `${origin} · ${resolved.blocked || (resolved.effective ? "开启" : "关闭")}${resolved.blocked && resolved.desired === "on" ? " · 保留开启偏好" : ""}`;
+    }
+    renderStatus();
+  }
+  for (const item of catalog) {
+    const row = document.createElement("div"); row.className = "tp-row";
+    const info = document.createElement("div");
+    const name = document.createElement("label"); name.className = "tp-name"; name.htmlFor = `tp-switch-${item.id}`; name.textContent = item.name;
+    const meta = document.createElement("div"); meta.className = "tp-meta";
+    const detail = document.createElement("span"); detail.className = "tp-detail"; detail.id = `tp-detail-${item.id}`;
+    const reset = document.createElement("button"); reset.type = "button"; reset.className = "tp-revert"; reset.textContent = "恢复默认"; reset.dataset.resetCapability = item.id; reset.setAttribute("aria-label", `${item.name}：恢复默认`);
+    reset.addEventListener("click", () => { delete draft().overrides[item.id]; render(); });
+    const control = document.createElement("label"); control.className = "tp-switch";
+    const toggle = document.createElement("input"); toggle.type = "checkbox"; toggle.id = name.htmlFor; toggle.setAttribute("role", "switch"); toggle.dataset.capability = item.id; toggle.setAttribute("aria-label", item.name); toggle.setAttribute("aria-describedby", detail.id);
+    toggle.addEventListener("change", () => { draft().overrides[item.id] = toggle.checked ? "on" : "off"; render(); });
+    const track = document.createElement("span"); track.className = "tp-track"; track.setAttribute("aria-hidden", "true");
+    control.append(toggle, track); meta.append(detail, reset); info.append(name, meta); row.append(info, control); $("tp-capabilities").append(row);
+    controls.set(item.id, { row, toggle, reset, detail });
+  }
+  $("tp-toggle").addEventListener("click", () => { expanded = !expanded; render(); saveView(); });
+  $("tp-thread").addEventListener("change", () => { active = $("tp-thread").value; render(); saveView(); });
+  root.querySelectorAll("[data-pane-button]").forEach(button => button.addEventListener("click", () => { pane = button.dataset.paneButton; render(); saveView(); }));
+  root.querySelectorAll("[data-kind-button]").forEach(button => button.addEventListener("click", () => { category = button.dataset.kindButton; render(); saveView(); }));
+  $("tp-persona").addEventListener("input", () => { draft().persona = $("tp-persona").value; renderStatus(); });
+  $("tp-background").addEventListener("input", () => { draft().background = $("tp-background").value; renderStatus(); });
+  $("tp-apply").addEventListener("click", () => {
+    if (!changed()) return;
+    const candidate = cleanConfig(draft());
+    if (!candidate) return;
+    states[active] = candidate; drafts.delete(active);
+    notices.set(active, hasOverrides(candidate) ? "已应用到当前示例 · 其他线程保持不变" : "已恢复此示例默认");
+    storageNotice = ""; render(); saveView();
+  });
+  $("tp-cancel").addEventListener("click", () => { drafts.delete(active); render(); });
+  $("tp-reset").addEventListener("click", () => { drafts.set(active, blank()); render(); });
+  try { restore(window.openai?.widgetState); } catch {}
+  window.addEventListener("openai:set_globals", event => {
+    const globals = event.detail?.globals;
+    if (!globals || !Object.hasOwn(globals, "widgetState")) return;
+    // Ignore this view's optimistic echoes and preserve any unsaved drafts.
+    if (globals.widgetState?.privateContent?.writer === writer) return;
+    if ([...drafts].some(([id, value]) => comparable(value) !== comparable(states[id]))) return;
+    try { if (restore(globals.widgetState)) render(); } catch {}
+  });
+  render();
+  if (globalThis.Tweak) {
+    const design = { density: "compact" };
+    const tweak = new Tweak({ container: root, onChange: () => { root.dataset.density = design.density; } });
+    tweak.addSelect(design, "density", { label: "能力列表行距", options: [{ label: "紧凑", value: "compact" }, { label: "舒适", value: "relaxed" }] });
+  }
+})();
+</script>

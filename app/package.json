@@ -1,0 +1,13 @@
+{
+  "name": "threadbrief-panel",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Thread-scoped configuration panel and explicit host integration contract",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test --test-concurrency=1 tests/*.test.mjs native-adapter/*.test.mjs",
+    "test:browser": "node tests/verify-browser.cjs"
+  },
+  "engines": { "node": ">=22" }
+}

@@ -1,0 +1,23 @@
+# Local task data, receipts and generated verification artifacts
+**/data/
+**/.runtime/
+**/output/
+**/node_modules/
+app/current-thread.json
+app/native-adapter/runtime-config.json
+app/native-adapter/threadbrief-codex.exe
+app/host-probe/
+*.log
+
+# Credentials and machine-local settings
+.env
+.env.*
+!.env.example
+**/auth.json
+
+# Conversation artifacts are kept outside the source distribution
+archives/
+recovery/
+recovered/
+references/
+preview/fresh-preview-evidence/

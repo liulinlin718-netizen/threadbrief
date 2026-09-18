@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>任务配置</title>
+  <link rel="stylesheet" href="/assets/panel.css">
+  <script src="/assets/panel.js" defer></script>
+</head>
+<body>
+  <main class="panel" aria-label="当前任务配置">
+    <section class="card" aria-label="任务配置卡">
+      <button id="expand" class="card-bar" type="button" aria-expanded="false" aria-controls="card-content">
+        <strong>任务配置</strong><span id="summary" class="summary">连接中</span>
+        <svg class="chevron" width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="m5 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="card-content" hidden>
+        <div class="tabs" role="tablist" aria-label="配置内容">
+          <button id="tab-profile" type="button" role="tab" aria-selected="true" aria-controls="profile-pane" tabindex="0">人设</button>
+          <button id="tab-capabilities" type="button" role="tab" aria-selected="false" aria-controls="capabilities-pane" tabindex="-1">能力</button>
+        </div>
+        <div id="profile-pane" role="tabpanel" aria-labelledby="tab-profile">
+          <label class="field" for="persona">人设<textarea id="persona" rows="2" maxlength="8000" placeholder="希望 Agent 如何协作" disabled></textarea></label>
+          <label class="field" for="background">背景<textarea id="background" rows="3" maxlength="24000" placeholder="长期目标与项目背景" disabled></textarea></label>
+        </div>
+        <div id="capabilities-pane" role="tabpanel" aria-labelledby="tab-capabilities" hidden>
+          <div id="categories" class="categories" role="tablist" aria-label="能力分类">
+            <button id="category-skill" type="button" role="tab" data-kind="skill" aria-selected="true" aria-controls="capability-list" tabindex="0">Skills<span data-count="skill"></span></button>
+            <button id="category-mcp" type="button" role="tab" data-kind="mcp" aria-selected="false" aria-controls="capability-list" tabindex="-1">MCP<span data-count="mcp"></span></button>
+            <button id="category-plugin" type="button" role="tab" data-kind="plugin" aria-selected="false" aria-controls="capability-list" tabindex="-1">插件<span data-count="plugin"></span></button>
+            <button id="category-app" type="button" role="tab" data-kind="app" aria-selected="false" aria-controls="capability-list" tabindex="-1">应用<span data-count="app"></span></button>
+          </div>
+          <div id="capability-list" role="tabpanel" aria-labelledby="category-skill"></div>
+        </div>
+        <div class="actions">
+          <p id="save-status" role="status" aria-live="polite">连接中</p>
+          <button id="apply" type="button" class="primary" disabled>保存</button>
+        </div>
+        <details id="history" class="details">
+          <summary>详情与历史</summary>
+          <div class="task-heading"><span id="task-title">当前任务</span><span id="version"></span></div>
+          <p class="detail-note">仅此任务，默认项沿用原配置。<span id="connection">连接中</span></p>
+          <dl id="integration-status"></dl>
+          <p id="notice" class="detail-note" hidden></p>
+          <div class="detail-actions"><button id="reset" type="button" disabled>恢复默认</button><button id="cancel" type="button" disabled>取消草稿</button></div>
+          <div class="history-heading">版本历史<span id="history-count"></span></div>
+          <div id="history-list"></div>
+        </details>
+      </div>
+    </section>
+    <div id="error-banner" class="error-banner" role="alert" hidden>
+      <p id="error-message"></p>
+      <div class="error-actions"><button id="reconnect" type="button">重新连接</button><button id="reload" type="button" hidden>放弃草稿，载入最新</button><button id="download-draft" type="button" hidden>备份草稿</button></div>
+    </div>
+  </main>
+</body>
+</html>
