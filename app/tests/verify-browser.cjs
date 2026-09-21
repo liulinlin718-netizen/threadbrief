@@ -189,59 +189,59 @@ async function main() {
 
     const beforeHistoryEdits = structuredClone((await service.state()).config);
     const manage = revision => page.getByRole('button', { name: `管理版本 ${revision}`, exact: true });
-    await manage(3).click();
-    assert.equal(await page.getByRole('button', { name: '删除版本 3', exact: true }).isDisabled(), true);
-    await page.getByRole('button', { name: '重命名版本 3', exact: true }).click();
-    await page.getByRole('textbox', { name: '版本 3 的名称', exact: true }).fill('中文审阅伙伴');
-    await page.getByRole('button', { name: '保存版本 3 名称', exact: true }).click();
-    await page.locator('.history-item[data-revision="3"] .history-label').filter({ hasText: '中文审阅伙伴' }).waitFor();
+    await manage(1).click();
+    assert.equal(await page.getByRole('button', { name: '删除版本 1', exact: true }).isDisabled(), true);
+    await page.getByRole('button', { name: '重命名版本 1', exact: true }).click();
+    await page.getByRole('textbox', { name: '版本 1 的名称', exact: true }).fill('中文审阅伙伴');
+    await page.getByRole('button', { name: '保存版本 1 名称', exact: true }).click();
+    await page.locator('.history-item[data-revision="1"] .history-label').filter({ hasText: '中文审阅伙伴' }).waitFor();
     assert.deepEqual((await service.state()).config, beforeHistoryEdits);
     await page.reload();
     await waitVersion(page, 3);
     await page.locator('#expand').click();
     await page.locator('#history').evaluate(node => { node.open = true; });
-    assert.equal(await page.locator('.history-item[data-revision="3"] .history-label').innerText(), '中文审阅伙伴');
+    assert.equal(await page.locator('.history-item[data-revision="1"] .history-label').innerText(), '中文审阅伙伴');
     checks.push('Current version can be renamed durably without changing configuration; current deletion is protected');
 
-    await manage(1).click();
-    await page.getByRole('button', { name: '删除版本 1', exact: true }).click();
+    await manage(2).click();
+    await page.getByRole('button', { name: '删除版本 2', exact: true }).click();
     await page.getByRole('button', { name: '取消版本操作', exact: true }).click();
-    assert.equal((await service.state()).history.some(entry => entry.revision === 1), true);
-    await manage(1).click();
-    await page.getByRole('button', { name: '删除版本 1', exact: true }).click();
-    await page.getByRole('button', { name: '确认删除版本 1', exact: true }).click();
-    await page.locator('.history-item[data-revision="1"]').waitFor({ state: 'detached' });
+    assert.equal((await service.state()).history.some(entry => entry.revision === 2), true);
+    await manage(2).click();
+    await page.getByRole('button', { name: '删除版本 2', exact: true }).click();
+    await page.getByRole('button', { name: '确认删除版本 2', exact: true }).click();
+    await page.locator('.history-item[data-revision="2"]').waitFor({ state: 'detached' });
     assert.deepEqual((await service.state()).config, beforeHistoryEdits);
-    assert.equal((await service.state()).history.some(entry => entry.revision === 1), false);
+    assert.equal((await service.state()).history.some(entry => entry.revision === 2), false);
     await saveScreenshot(page, '09-version-history.png');
     await page.setViewportSize({ width: 320, height: 900 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     checks.push('Historical deletion requires explicit confirmation, cancel preserves it, and delete leaves current configuration intact');
 
     // Simulate another tab changing history after this tab started editing.
-    await manage(2).click();
-    await page.getByRole('button', { name: '重命名版本 2', exact: true }).click();
-    await page.getByRole('textbox', { name: '版本 2 的名称', exact: true }).fill('保留的名称草稿');
+    await manage(1).click();
+    await page.getByRole('button', { name: '重命名版本 1', exact: true }).click();
+    await page.getByRole('textbox', { name: '版本 1 的名称', exact: true }).fill('保留的名称草稿');
     const concurrentState = await service.state();
     const concurrentRename = await fetch(service.url + '/api/history/rename', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Origin: service.origin },
-      body: JSON.stringify({ expectedRevision: 3, expectedHistoryRevision: concurrentState.historyRevision, targetRevision: 2, name: '另一面板命名' })
+      body: JSON.stringify({ expectedRevision: 3, expectedHistoryRevision: concurrentState.historyRevision, targetRevision: 1, name: '另一面板命名' })
     });
     assert.equal(concurrentRename.status, 200);
     // Polling while an inline editor is open must not discard its text or silently rebase its CAS.
     await page.waitForTimeout(5200);
     assert.equal(await page.locator('#version-name').inputValue(), '保留的名称草稿');
-    await page.getByRole('button', { name: '保存版本 2 名称', exact: true }).click();
+    await page.getByRole('button', { name: '保存版本 1 名称', exact: true }).click();
     await page.locator('#reload').waitFor();
     assert.equal(await page.locator('#version-name').inputValue(), '保留的名称草稿');
-    assert.equal((await service.state()).history.find(entry => entry.revision === 2).name, '另一面板命名');
+    assert.equal((await service.state()).history.find(entry => entry.revision === 1).name, '另一面板命名');
     await page.locator('#reload').click();
-    await page.locator('.history-item[data-revision="2"] .history-label').filter({ hasText: '另一面板命名' }).waitFor();
+    await page.locator('.history-item[data-revision="1"] .history-label').filter({ hasText: '另一面板命名' }).waitFor();
     assert.equal(await page.locator('#version-name').count(), 0);
     checks.push('Concurrent history edits return 409; polling and conflict preserve rename draft until explicit reload');
 
     await page.locator('#persona').fill('未保存的人设草稿');
-    assert.equal(await manage(2).isDisabled(), true);
+    assert.equal(await manage(1).isDisabled(), true);
     assert.equal(await page.locator('#persona').inputValue(), '未保存的人设草稿');
     await page.locator('#cancel').click();
     assert.deepEqual((await service.state()).config, beforeHistoryEdits);
@@ -269,8 +269,8 @@ async function main() {
     }
     assert.equal((await service.state()).integration.mount.status, 'page-observed');
     assert.equal((await service.state()).config.revision, 3);
-    assert.equal((await service.state()).history.find(entry => entry.revision === 3).name, '中文审阅伙伴');
-    assert.equal((await service.state()).history.some(entry => entry.revision === 1), false);
+    assert.equal((await service.state()).history.find(entry => entry.revision === 1).name, '另一面板命名');
+    assert.equal((await service.state()).history.some(entry => entry.revision === 2), false);
     assert.equal(configWrites.length, report.configWriteRequests);
     checks.push('Existing page reconnects after restart at the same address and resends visibility without configuration writes');
     report.passed = true;

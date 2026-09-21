@@ -66,7 +66,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
   async function state(context = primary) {
     const { binding, scope, visible, catalog: safeCatalog } = context;
     const config = await store.get(scope);
-    const versionHistory = await store.versionHistory(scope);
+    const versionHistory = await store.sharedVersionHistory(scope);
     const native = await readNativeEvidence(nativeEvidenceDirectory, scope, { bridgeDirectory });
     const live = native?.live === true;
     const failedKinds = new Set(native?.evidence?.catalogFailedKinds || []);
@@ -129,7 +129,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       ...versionHistory,
       notice: live ? native.catalogFresh && !failedKinds.size
         ? '本任务目录来自已连接宿主。目录观测、已保存的选择和执行控制分别显示；排队打开面板不代表配置已经生效。'
-        : '宿主连接仍在线；目录包含旧快照或读取失败项，当前运行状态未知。已知任务偏好仍可编辑，心跳不会刷新目录观测时间。'
+        : '宿主连接仍在线；目录包含旧快照或读取失败项，当前运行状态未知。桥接层会自动重试实时目录，已知任务偏好仍可编辑。'
         : safeCatalog.length
         ? '目录来自本机配置快照；当前任务的执行状态未确认。开关只保存任务偏好。MCP / 应用目录尚未接入。'
         : '任务配置可保存、重开和回滚。宿主尚未提供此任务的能力目录或执行接口，保存不等于实际生效。',
@@ -151,7 +151,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       if (request.headers['sec-fetch-site'] === 'cross-site') throw problem(403, '拒绝跨站请求');
       const url = new URL(request.url, origin);
       if (url.pathname === '/health' && request.method === 'GET') {
-        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.1' })); return;
+        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.2' })); return;
       }
       if (staticFiles.has(url.pathname) && request.method === 'GET') {
         const [file, mime] = staticFiles.get(url.pathname);
@@ -170,12 +170,12 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       let result;
       if (suffix === '/api/state' && request.method === 'GET') result = await state(context);
       else if (suffix === '/api/history' && request.method === 'GET') {
-        result = await store.versionHistory(scope);
+        result = await store.sharedVersionHistory(scope);
       } else if (['/api/history/rename', '/api/history/delete'].includes(suffix) && request.method === 'POST') {
         const body = await jsonBody(request);
         const input = { expectedRevision: body.expectedRevision, expectedHistoryRevision: body.expectedHistoryRevision, targetRevision: body.targetRevision, name: body.name };
-        if (suffix === '/api/history/rename') await store.renameVersion(scope, input);
-        else await store.deleteVersion(scope, input);
+        if (suffix === '/api/history/rename') await store.renameSharedVersion(scope, input);
+        else await store.deleteSharedVersion(scope, input);
         result = await state(context);
       } else if (suffix === '/api/config' && request.method === 'PUT') {
         const body = await jsonBody(request);
@@ -183,7 +183,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
         result = await state(context);
       } else if (suffix === '/api/rollback' && request.method === 'POST') {
         const body = await jsonBody(request);
-        await store.rollback(scope, { expectedRevision: body.expectedRevision, targetRevision: body.targetRevision });
+        await store.restoreSharedVersion(scope, { expectedRevision: body.expectedRevision, targetRevision: body.targetRevision });
         result = await state(context);
       } else if (suffix === '/api/visible' && request.method === 'POST') {
         const body = await jsonBody(request);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createPanelService } from '../lib/panel-service.mjs';
 
-const binding = { threadId: '11111111-2222-4333-8444-555555555555', hostId: 'local-test', accountScope: 'test-only', title: '测试任务' };
+const binding = { threadId: '01a0ab14-b92e-73f1-b264-692c656dea98', hostId: 'local-test', accountScope: 'test-only', title: '测试任务' };
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'threadbrief-api-'));
   const app = await createPanelService({ binding, dataDirectory: path.join(directory, 'data') });
@@ -76,14 +76,17 @@ test('version rename and deletion persist through API without changing task conf
   const renamed = await rename.json();
   assert.deepEqual(renamed.config, saved.config);
   assert.equal(renamed.historyRevision, 1);
-  assert.deepEqual(renamed.history, [{ revision: 1, name: '初始人设' }, { revision: 2 }]);
+  assert.deepEqual(renamed.history, [
+    { revision: 1, name: '初始人设', current: false, activeThreadCount: 0 },
+    { revision: 2, current: true, activeThreadCount: 1 },
+  ]);
   assert.deepEqual(await (await fetch(app.url + '/api/history')).json(), { historyRevision: 1, history: renamed.history });
   const remove = await send(app, '/api/history/delete', { expectedRevision: 2, expectedHistoryRevision: 1, targetRevision: 1 }, 'POST');
   assert.equal(remove.status, 200);
   const removed = await remove.json();
   assert.deepEqual(removed.config, saved.config);
   assert.equal(removed.historyRevision, 2);
-  assert.deepEqual(removed.history, [{ revision: 2 }]);
+  assert.deepEqual(removed.history, [{ revision: 2, current: true, activeThreadCount: 1 }]);
   const reload = await (await fetch(app.url + '/api/state')).json();
   assert.deepEqual(reload.history, removed.history);
   assert.equal(reload.historyRevision, 2);
@@ -110,5 +113,8 @@ test('version API enforces metadata/configuration CAS, active version protection
   assert.equal(configConflict.status, 409);
   assert.equal((await configConflict.json()).code, 'REVISION_CONFLICT');
   assert.equal((await send(app, '/api/history/delete', { expectedRevision: 2, expectedHistoryRevision: 1, targetRevision: 1 }, 'POST', { Origin: 'https://outside.example' })).status, 403);
-  assert.deepEqual((await app.state()).history, [{ revision: 1, name: 'New name' }, { revision: 2 }]);
+  assert.deepEqual((await app.state()).history, [
+    { revision: 1, name: 'New name', current: false, activeThreadCount: 0 },
+    { revision: 2, current: true, activeThreadCount: 1 },
+  ]);
 });

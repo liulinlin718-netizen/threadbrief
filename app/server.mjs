@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPanelService } from './lib/panel-service.mjs';
-import { catalogFromSnapshot } from './lib/catalog-snapshot.mjs';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -23,14 +22,10 @@ try {
   // the task registry; a truncated cache must not prevent service recovery.
   if (error.code !== 'ENOENT' && error.code !== 'ERR_INVALID_URL' && !(error instanceof SyntaxError)) throw error;
 }
-let catalog = [];
-try {
-  const snapshot = JSON.parse(await readFile(path.join(root, 'host-probe', 'catalog-snapshot.json'), 'utf8'));
-  catalog = catalogFromSnapshot(snapshot, binding.threadId);
-} catch (error) {
-  // A fresh installation learns its catalog from the native adapter.
-  if (error.code !== 'ENOENT') throw error;
-}
+// Runtime evidence from the connected Codex adapter is authoritative. A
+// persisted host-probe snapshot is diagnostic material and must never seed a
+// newly opened task with an outdated capability directory.
+const catalog = [];
 const registryDirectory = path.resolve(flag('--registry') || path.join(runtimeDirectory, 'thread-bindings'));
 const nativeEvidenceDirectory = flag('--native-evidence') ? path.resolve(flag('--native-evidence')) : undefined;
 const bridgeDirectory = flag('--bridge-directory') ? path.resolve(flag('--bridge-directory')) : undefined;

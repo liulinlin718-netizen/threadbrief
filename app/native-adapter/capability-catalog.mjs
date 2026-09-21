@@ -25,9 +25,9 @@ export async function readCapabilityCatalog({ rpc, scope, cwd, servers }) {
       : { kind: 'mcp-server', serverName: server.name },
   }));
   const calls = [
-    ['skills', 'skills/list', { cwds: [cwd], forceReload: false }],
+    ['skills', 'skills/list', { cwds: [cwd], forceReload: true }],
     ['plugins', 'plugin/installed', { cwds: [cwd] }],
-    ['apps', 'app/installed', { threadId: scope.threadId, forceRefresh: false }],
+    ['apps', 'app/installed', { threadId: scope.threadId, forceRefresh: true }],
   ];
   const results = await Promise.allSettled(calls.map(([, method, params]) => rpc.call(method, params)));
   const failures = [];

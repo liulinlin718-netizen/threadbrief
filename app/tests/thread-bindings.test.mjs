@@ -6,8 +6,8 @@ import path from 'node:path';
 import { openThreadBindings } from '../lib/thread-bindings.mjs';
 import { createPanelService } from '../lib/panel-service.mjs';
 
-const binding = { threadId: '11111111-2222-4333-8444-555555555555', hostId: 'registry-test-host', accountScope: 'registry-test-account', title: '原任务' };
-const otherId = '11111111-2222-4333-8444-555555555556';
+const binding = { threadId: '01a0ab14-b92e-73f1-b264-692c656dea98', hostId: 'registry-test-host', accountScope: 'registry-test-account', title: '原任务' };
+const otherId = '01a0ab14-b92e-73f1-b264-692c656dea99';
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'threadbrief-binding-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -54,8 +54,10 @@ test('one loopback service isolates live registered tasks without writing defaul
   assert.equal(saved.status, 200);
   assert.equal((await state(primaryUrl)).config.revision, 0);
   assert.equal((await state(otherUrl)).config.persona, '只属于子任务');
-  assert.deepEqual(await (await fetch(primaryUrl + '/api/history')).json(), { historyRevision: 0, history: [] });
-  assert.equal((await (await fetch(otherUrl + '/api/history')).json()).history.length, 1);
+  const sharedFromPrimary = await (await fetch(primaryUrl + '/api/history')).json();
+  const sharedFromOther = await (await fetch(otherUrl + '/api/history')).json();
+  assert.deepEqual(sharedFromPrimary, { historyRevision: 0, history: [{ revision: 1, current: false, activeThreadCount: 1 }] });
+  assert.deepEqual(sharedFromOther, { historyRevision: 0, history: [{ revision: 1, current: true, activeThreadCount: 1 }] });
   assert.equal((await send(app.origin, otherUrl, '/api/visible', { width: 380, height: 800, visibility: 'visible' }, 'POST')).status, 200);
   assert.equal((await state(primaryUrl)).integration.mount.status, 'waiting');
   const observed = await state(otherUrl);

@@ -29,7 +29,7 @@ test('Windows PowerShell 5.1 parses the actual launcher chain', { skip: unavaila
   assert.equal(stdout.trim(), '5');
 });
 
-test('Windows launcher starts, reuses and recovers a panel without a private catalog', { skip: unavailablePowerShell }, async t => {
+test('Windows launcher ignores a stale private catalog, then starts, reuses and recovers a panel', { skip: unavailablePowerShell }, async t => {
   const root = await mkdtemp(path.join(tmpdir(), 'threadbrief-launcher-'));
   const fixture = path.join(root, '\u6d4b\u8bd5 panel');
   const metadataFile = path.join(fixture, '.runtime', 'server.json');
@@ -46,10 +46,13 @@ test('Windows launcher starts, reuses and recovers a panel without a private cat
     assert.ok(path.basename(root).startsWith('threadbrief-launcher-'));
     await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
-  await mkdir(fixture, { recursive: true });
+  await mkdir(path.join(fixture, 'host-probe'), { recursive: true });
   for (const file of ['server.mjs', 'Start-Panel.ps1']) await copyFile(path.join(app, file), path.join(fixture, file));
   for (const directory of ['lib', 'public']) await cp(path.join(app, directory), path.join(fixture, directory), { recursive: true });
   await writeFile(path.join(fixture, 'current-thread.json'), JSON.stringify(binding));
+  await writeFile(path.join(fixture, 'host-probe', 'catalog-snapshot.json'), JSON.stringify({ binding, observedAt: '2000-01-01T00:00:00.000Z', items: [
+    { id: 'mcp:stale', name: 'Stale MCP', kind: 'mcp', defaultEnabled: true, available: true },
+  ] }));
   const launch = () => run(powershell, ['-NoProfile', '-NonInteractive', '-File', path.join(fixture, 'Start-Panel.ps1'), '-Port', '0', '-NodeExecutable', process.execPath], { windowsHide: true, timeout: 15000 });
   const first = await launch();
   assert.equal(first.stderr, '');
@@ -61,6 +64,7 @@ test('Windows launcher starts, reuses and recovers a panel without a private cat
   assert.equal(state.thread.id, binding.threadId);
   assert.equal(state.thread.title, binding.title);
   assert.equal(state.config.revision, 0);
+  assert.deepEqual(state.catalog, []);
   assert.equal(metadata.nativeEvidenceDirectory, path.join(fixture, '.runtime', 'native-evidence'));
   assert.equal(metadata.bridgeDirectory, path.join(fixture, 'native-adapter', '.runtime'));
   const second = await launch();

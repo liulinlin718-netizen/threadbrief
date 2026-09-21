@@ -87,6 +87,8 @@ if (!serverMode) {
   const taskParents = new Map();
   const promptHookTasks = new Set();
   const trustedHookSources = new Set();
+  const catalogRefreshes = new Set();
+  const catalogRefreshedAt = new Map();
   const observeThread = thread => {
     if (!scopeForThread(thread?.id || '')) return;
     if (typeof thread.cwd === 'string') taskCwds.set(thread.id, thread.cwd);
@@ -132,11 +134,6 @@ if (!serverMode) {
             if (!read.error && read.result?.thread?.id === threadId) observeThread(read.result.thread);
           }
           const catalog = await readCapabilityCatalog({ rpc: internalRpc, scope: scopeForThread(threadId), cwd: taskCwds.get(threadId) || path.dirname(config.currentThreadBinding), servers });
-          // Preserve exact mappings for a disabled server omitted by the fresh
-          // runtime directory so its switch can be re-enabled in this task.
-          for (const previous of taskCatalogs.get(threadId)?.items || []) {
-            if (!catalog.items.some(item => item.id === previous.id)) catalog.items.push({ ...previous, effective: null, reason: '本次目录未返回此能力；保留已有任务设置' });
-          }
           taskCatalogs.set(threadId, catalog);
           await updateEvidence(threadId, { catalog: catalog.items, catalogObservedAt: new Date().toISOString(), catalogFailedKinds: catalog.failures.map(kind => ({ skills: 'skill', plugins: 'plugin', apps: 'app' })[kind]), capabilityStatus: taskEvidence.get(threadId)?.capabilityStatus || 'catalog-observed', profileStatus: taskEvidence.get(threadId)?.profileStatus || 'ready' });
         },
@@ -162,7 +159,15 @@ if (!serverMode) {
   await writeStatus();
   heartbeat = setInterval(() => {
     writeStatus().catch(() => {});
-    for (const threadId of taskEvidence.keys()) updateEvidence(threadId).catch(() => {});
+    for (const threadId of taskEvidence.keys()) {
+      updateEvidence(threadId).catch(() => {});
+      if (automaticPanel && !catalogRefreshes.has(threadId) && Date.now() - (catalogRefreshedAt.get(threadId) || 0) >= 15_000) {
+        catalogRefreshes.add(threadId);
+        automaticPanel.refreshCatalog({ threadId, waitForObserver: true })
+          .then(refreshed => { if (refreshed) catalogRefreshedAt.set(threadId, Date.now()); })
+          .finally(() => catalogRefreshes.delete(threadId));
+      }
+    }
   }, 10000);
   heartbeat.unref();
   const input = relayJsonLines(process.stdin, child.stdin, async message => {

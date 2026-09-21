@@ -323,3 +323,63 @@ test('modified metadata fails closed for version operations without changing act
   assert.deepEqual(await store.history(scope), [current]);
   assert.equal(JSON.parse(await readFile(metadataPath, 'utf8')).entries['1'].name, 'Tampered');
 });
+
+test('shared versions span sibling tasks while restores remain thread local', async t => {
+  const { store } = await fixture(t);
+  const sibling = { ...scope, threadId: 'child-B' };
+  const otherAccount = { ...scope, accountScope: 'account-B', threadId: 'child-C' };
+  await store.save(scope, profile(0, 'Parent profile'));
+  await store.save(sibling, profile(0, 'Sibling profile'));
+  await store.save(otherAccount, profile(0, 'Other account'));
+  const fromParent = await store.sharedVersionHistory(scope);
+  const fromSibling = await store.sharedVersionHistory(sibling);
+  assert.deepEqual(fromParent.history.map(item => item.revision), [1, 2]);
+  assert.deepEqual(fromSibling.history.map(item => item.revision), [1, 2]);
+  assert.equal(fromParent.history.find(item => item.current).revision, 1);
+  assert.equal(fromSibling.history.find(item => item.current).revision, 2);
+  assert.deepEqual((await store.sharedVersionHistory(otherAccount)).history.map(item => item.revision), [1]);
+  assert.equal((await store.sharedVersionHistory(scope)).history.length, 2);
+  const restored = await store.restoreSharedVersion(sibling, { expectedRevision: 1, targetRevision: 1 });
+  assert.equal(restored.persona, 'Parent profile');
+  assert.equal(restored.revision, 2);
+  assert.equal((await store.get(scope)).revision, 1);
+  assert.equal((await store.get(scope)).persona, 'Parent profile');
+});
+
+test('shared names are global and a version in use by any task cannot be deleted', async t => {
+  const { store } = await fixture(t);
+  const sibling = { ...scope, threadId: 'child-B' };
+  await store.save(scope, profile(0, 'Shared one'));
+  await store.save(sibling, profile(0, 'Shared two'));
+  await store.sharedVersionHistory(scope);
+  const named = await store.renameSharedVersion(scope, versionInput(1, 0, 1, '团队基线'));
+  assert.equal(named.history[0].name, '团队基线');
+  assert.equal((await store.sharedVersionHistory(sibling)).history[0].name, '团队基线');
+  await assert.rejects(store.deleteSharedVersion(sibling, versionInput(1, 1, 1)), { code: 'VALIDATION_ERROR' });
+  await store.restoreSharedVersion(scope, { expectedRevision: 1, targetRevision: 2 });
+  const deleted = await store.deleteSharedVersion(sibling, versionInput(1, 1, 1));
+  assert.equal(deleted.history.some(item => item.revision === 1), false);
+  await assert.rejects(store.restoreSharedVersion(scope, { expectedRevision: 2, targetRevision: 1 }), { code: 'REVISION_NOT_FOUND' });
+});
+
+test('shared deletion and restoration serialize around active-task protection', async t => {
+  const { store } = await fixture(t);
+  const sibling = { ...scope, threadId: 'child-B' };
+  await store.save(scope, profile(0, 'Shared one'));
+  await store.save(sibling, profile(0, 'Shared two'));
+  await store.sharedVersionHistory(scope);
+  await store.restoreSharedVersion(scope, { expectedRevision: 1, targetRevision: 2 });
+  const [deletion, restoration] = await Promise.allSettled([
+    store.deleteSharedVersion(sibling, versionInput(1, 0, 1)),
+    store.restoreSharedVersion(scope, { expectedRevision: 2, targetRevision: 1 }),
+  ]);
+  if (deletion.status === 'fulfilled') {
+    assert.equal(restoration.status, 'rejected');
+    assert.equal(restoration.reason.code, 'REVISION_NOT_FOUND');
+    assert.equal((await store.get(scope)).persona, 'Shared two');
+  } else {
+    assert.equal(deletion.reason.code, 'VALIDATION_ERROR');
+    assert.equal(restoration.status, 'fulfilled');
+    assert.equal((await store.get(scope)).persona, 'Shared one');
+  }
+});

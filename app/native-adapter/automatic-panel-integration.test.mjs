@@ -231,6 +231,8 @@ test('real proxy automatically queues each task once while preserving host bytes
   // the already queued panel; only the query scope, not its count, is fixed.
   assert.ok(queriedCwds.length >= 4);
   assert.ok(queriedCwds.every(frame => frame.value.params.cwds[0] === f.taskCwd));
+  assert.ok(frames.filter(frame => frame.value.method === 'skills/list').every(frame => frame.value.params.forceReload === true));
+  assert.ok(frames.filter(frame => frame.value.method === 'app/installed').every(frame => frame.value.params.forceRefresh === true));
   assert.ok(frames.filter(frame => ['mcpServerStatus/list', 'app/installed'].includes(frame.value.method))
     .every(frame => [A, B].includes(frame.value.params.threadId)));
   for (const threadId of [A, B]) assert.deepEqual(await f.store.get(scope(threadId)), { revision: 0, persona: '', background: '', overrides: {} });

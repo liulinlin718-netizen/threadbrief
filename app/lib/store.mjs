@@ -385,6 +385,195 @@ export class ThreadStore {
 
   async deleteVersion(scope, input) { return this._changeVersion(scope, input, 'delete'); }
 
+  _sharedPaths(scope) {
+    const normalized = normalizeScope(scope);
+    const authority = { hostId: normalized.hostId, accountScope: normalized.accountScope };
+    const id = digest({ version: 1, authority, namespace: 'shared-version-history' });
+    const directory = join(this.dataDirectory, '.shared', id);
+    return { scope: normalized, authority, directory, file: join(directory, 'history.json'), lock: join(this.dataDirectory, '.locks', `shared-${id}`) };
+  }
+
+  async _sharedLibrary(paths) {
+    let value;
+    try { value = await regularJSON(paths.file); }
+    catch (err) {
+      if (err.code === 'ENOENT') return { version: 1, authority: paths.authority, nextRevision: 1, historyRevision: 0, entries: [] };
+      throw err;
+    }
+    try {
+      if (!isRecord(value) || value.version !== 1 || canonical(value.authority) !== canonical(paths.authority)
+        || !Number.isSafeInteger(value.nextRevision) || value.nextRevision < 1
+        || !Number.isSafeInteger(value.historyRevision) || value.historyRevision < 0
+        || !Array.isArray(value.entries) || value.entries.length > 4096) throw new Error('Invalid shared history');
+      let expectedRevision = 1;
+      const keys = new Set();
+      for (const entry of value.entries) {
+        if (!isRecord(entry) || entry.revision !== expectedRevision++ || typeof entry.profileHash !== 'string'
+          || entry.profileHash.length !== 64 || keys.has(entry.profileHash)
+          || (entry.deleted !== undefined && entry.deleted !== true)
+          || (entry.name !== undefined && (!entry.name || normalizeVersionName(entry.name) !== entry.name))) {
+          throw new Error('Invalid shared version entry');
+        }
+        const profile = normalizeProfile(entry.profile);
+        if (canonical(profile) !== canonical(entry.profile) || digest(profile) !== entry.profileHash) throw new Error('Invalid shared version profile');
+        keys.add(entry.profileHash);
+      }
+      if (value.nextRevision !== expectedRevision) throw new Error('Invalid shared version counter');
+      const { hash, ...body } = value;
+      if (typeof hash !== 'string' || digest(body) !== hash) throw new Error('Shared history checksum mismatch');
+      return copy(body);
+    } catch (err) { throw error('CORRUPT_STORE', 'Shared version history failed validation', { cause: err }); }
+  }
+
+  async _sharedCandidates(scope) {
+    const primary = this._paths(scope);
+    let names;
+    try { names = await readdir(this.dataDirectory); }
+    catch (err) { if (err.code === 'ENOENT') return { candidates: [], active: new Map(), currentHash: null }; throw err; }
+    const ids = names.filter(name => /^[a-f0-9]{64}$/u.test(name)).sort();
+    const primaryId = primary.directory.slice(primary.directory.lastIndexOf(process.platform === 'win32' ? '\\' : '/') + 1);
+    ids.sort((a, b) => a === primaryId ? -1 : b === primaryId ? 1 : a.localeCompare(b));
+    const candidates = [];
+    const active = new Map();
+    let currentHash = null;
+    for (const id of ids) {
+      const directory = join(this.dataDirectory, id);
+      let first;
+      try { first = await regularJSON(join(directory, 'r0000000000000001.json')); }
+      catch (err) {
+        if (id === primaryId && err.code !== 'ENOENT') throw err;
+        continue;
+      }
+      let candidateScope;
+      try { candidateScope = normalizeScope(first.scope); }
+      catch (err) { if (id === primaryId) throw err; continue; }
+      if (candidateScope.hostId !== primary.scope.hostId || candidateScope.accountScope !== primary.scope.accountScope) continue;
+      const candidatePaths = this._paths(candidateScope);
+      if (candidatePaths.directory !== directory) throw error('CORRUPT_STORE', 'Task directory does not match its persisted scope');
+      const records = await this._records(candidatePaths);
+      const metadata = await this._versionMetadata(candidatePaths);
+      const visible = new Map(this._versionHistory(records, metadata).history.map(entry => [entry.revision, entry]));
+      for (const record of records) {
+        const shown = visible.get(record.revision);
+        if (!shown) continue;
+        const profile = normalizeProfile(record);
+        const profileHash = digest(profile);
+        candidates.push({ profile, profileHash, ...(shown.name ? { name: shown.name } : {}) });
+      }
+      if (records.length) {
+        const latest = normalizeProfile(records.at(-1));
+        const key = digest(latest);
+        active.set(key, (active.get(key) || 0) + 1);
+        if (candidateScope.threadId === primary.scope.threadId) currentHash = key;
+      }
+    }
+    return { candidates, active, currentHash };
+  }
+
+  _sharedView(library, currentHash, active) {
+    return {
+      historyRevision: library.historyRevision,
+      history: library.entries.filter(entry => !entry.deleted).map(entry => ({
+        revision: entry.revision,
+        ...(entry.name ? { name: entry.name } : {}),
+        current: entry.profileHash === currentHash,
+        activeThreadCount: active.get(entry.profileHash) || 0,
+      })),
+    };
+  }
+
+  async _syncShared(scope) {
+    const paths = this._sharedPaths(scope);
+    const observed = await this._sharedCandidates(scope);
+    if (!observed.candidates.length) {
+      const library = await this._sharedLibrary(paths);
+      return { paths, library, observed, view: this._sharedView(library, observed.currentHash, observed.active) };
+    }
+    const library = await withMutex(paths.lock, async () => {
+      const current = await this._sharedLibrary(paths);
+      const entries = copy(current.entries);
+      const known = new Set(entries.map(entry => entry.profileHash));
+      for (const candidate of observed.candidates) {
+        if (known.has(candidate.profileHash)) continue;
+        if (current.nextRevision + entries.length - current.entries.length === Number.MAX_SAFE_INTEGER) {
+          throw error('VALIDATION_ERROR', 'Shared version counter exhausted');
+        }
+        entries.push({ revision: entries.length + 1, profileHash: candidate.profileHash, profile: candidate.profile, ...(candidate.name ? { name: candidate.name } : {}) });
+        known.add(candidate.profileHash);
+      }
+      if (entries.length === current.entries.length) return current;
+      await ensureDirectory(paths.directory);
+      const body = { ...current, nextRevision: entries.length + 1, entries };
+      await durableWrite(paths.file, { ...body, hash: digest(body) });
+      return body;
+    });
+    return { paths, library, observed, view: this._sharedView(library, observed.currentHash, observed.active) };
+  }
+
+  async sharedVersionHistory(scope) { return (await this._syncShared(scope)).view; }
+
+  async _changeSharedVersion(scope, input, operation) {
+    if (!isRecord(input)) throw error('VALIDATION_ERROR', 'version input is required');
+    const expected = revision(input.expectedRevision);
+    const expectedHistory = revision(input.expectedHistoryRevision, 'expectedHistoryRevision');
+    const target = revision(input.targetRevision, 'targetRevision');
+    const name = operation === 'rename' ? normalizeVersionName(input.name) : undefined;
+    const synced = await this._syncShared(scope);
+    checkExpected(await this.get(scope), expected);
+    checkHistoryExpected(synced.library, expectedHistory);
+    const initial = synced.library.entries[target - 1];
+    if (!target || !initial || initial.deleted) throw error('REVISION_NOT_FOUND', '此共享版本不存在或已删除');
+    if (operation === 'delete' && (synced.observed.active.get(initial.profileHash) || 0) > 0) {
+      throw error('VALIDATION_ERROR', '此版本仍被任务使用，请先让相关任务切换到其他版本');
+    }
+    if (operation === 'rename' && (initial.name ?? '') === name) return synced.view;
+    await withMutex(synced.paths.lock, async () => {
+      checkExpected(await this.get(scope), expected);
+      const library = await this._sharedLibrary(synced.paths);
+      checkHistoryExpected(library, expectedHistory);
+      const entry = library.entries[target - 1];
+      if (!target || !entry || entry.deleted) throw error('REVISION_NOT_FOUND', '此共享版本不存在或已删除');
+      if (operation === 'delete') {
+        const fresh = await this._sharedCandidates(scope);
+        if ((fresh.active.get(entry.profileHash) || 0) > 0) {
+          throw error('VALIDATION_ERROR', '此版本仍被任务使用，请先让相关任务切换到其他版本');
+        }
+      }
+      const entries = copy(library.entries);
+      if (operation === 'delete') entries[target - 1].deleted = true;
+      else if (name) entries[target - 1].name = name;
+      else delete entries[target - 1].name;
+      const body = { ...library, historyRevision: library.historyRevision + 1, entries };
+      await durableWrite(synced.paths.file, { ...body, hash: digest(body) });
+    });
+    return this.sharedVersionHistory(scope);
+  }
+
+  async renameSharedVersion(scope, input) { return this._changeSharedVersion(scope, input, 'rename'); }
+
+  async deleteSharedVersion(scope, input) { return this._changeSharedVersion(scope, input, 'delete'); }
+
+  async restoreSharedVersion(scope, input) {
+    if (!isRecord(input)) throw error('VALIDATION_ERROR', 'rollback input is required');
+    const expected = revision(input.expectedRevision);
+    const target = revision(input.targetRevision, 'targetRevision');
+    if (target === 0) return this.save(scope, { expectedRevision: expected, persona: '', background: '', overrides: {} });
+    const synced = await this._syncShared(scope);
+    const selected = synced.library.entries[target - 1];
+    if (!selected || selected.deleted) throw error('REVISION_NOT_FOUND', '此共享版本不存在或已删除');
+    return withMutex(synced.paths.lock, async () => {
+      const library = await this._sharedLibrary(synced.paths);
+      const chosen = library.entries[target - 1];
+      if (!chosen || chosen.deleted) throw error('REVISION_NOT_FOUND', '此共享版本不存在或已删除');
+      const paths = this._paths(scope);
+      return withMutex(paths.lock, async () => {
+        const records = await this._records(paths);
+        checkExpected(records.at(-1) ?? EMPTY(), expected);
+        return this._commit(paths, records, chosen.profile);
+      });
+    });
+  }
+
   async _commit(paths, records, profile) {
     const previous = records.at(-1);
     const current = previous ? snapshot(previous) : EMPTY();

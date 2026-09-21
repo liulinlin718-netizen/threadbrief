@@ -207,7 +207,7 @@
       if (entry.name) row.append(element('span', 'history-number', `v${entry.revision}`));
       const actions = element('div', 'history-actions');
       const disabled = dirty() || busy || conflict;
-      if (entry.revision === state.config.revision) actions.append(element('span', 'history-current', '当前'));
+      if (entry.current) actions.append(element('span', 'history-current', '当前任务'));
       else {
         const restore = element('button', 'text-button', '恢复此版本');
         restore.type = 'button'; restore.disabled = disabled || Boolean(historyAction);
@@ -242,8 +242,8 @@
           const remove = addButton('删除', `删除版本 ${entry.revision}`, () => {
             historyAction.mode = 'delete'; renderHistory();
           }, 'danger');
-          remove.disabled ||= entry.revision === state.config.revision;
-          if (entry.revision === state.config.revision) remove.title = '当前版本正在使用，请先恢复其他版本或保存新版本。';
+          remove.disabled ||= Number(entry.activeThreadCount) > 0;
+          if (Number(entry.activeThreadCount) > 0) remove.title = `此版本仍被 ${entry.activeThreadCount} 个任务使用，请先切换这些任务。`;
         } else if (historyAction.mode === 'rename') {
           const input = element('input', 'version-name');
           input.id = 'version-name'; input.type = 'text'; input.maxLength = 80;
@@ -347,7 +347,7 @@
     busy = true; render(false);
     try {
       accept(await request('/api/rollback', 'POST', { expectedRevision: state.config.revision, targetRevision }));
-      saveMessage = `已恢复为 v${state.config.revision}`;
+      saveMessage = `已恢复共享版本 v${targetRevision} · 当前任务保存为 v${state.config.revision}`;
     } catch (caught) { fail(caught); }
     finally { busy = false; render(false); }
   }
