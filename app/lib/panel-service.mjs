@@ -151,7 +151,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       if (request.headers['sec-fetch-site'] === 'cross-site') throw problem(403, '拒绝跨站请求');
       const url = new URL(request.url, origin);
       if (url.pathname === '/health' && request.method === 'GET') {
-        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.0' })); return;
+        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.1' })); return;
       }
       if (staticFiles.has(url.pathname) && request.method === 'GET') {
         const [file, mime] = staticFiles.get(url.pathname);

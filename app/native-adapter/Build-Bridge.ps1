@@ -4,7 +4,7 @@ param([string]$NodeExecutable, [string]$CodexExecutable, [string]$DesktopExecuta
 $ErrorActionPreference = 'Stop'
 $adapterRoot = $PSScriptRoot
 $appRoot = Split-Path -Parent $adapterRoot
-$expectedHash = 'BE793AB45ADBCBD9FA716DF04CB6BC68EB9E353C6E6AF20886AF45C11ABC2413'
+$expectedHash = 'BC45017E8239DC150258F69309CED9DF6BBCDF5B8E4F346DECF780AC0999E226'
 if (-not $NodeExecutable) {
   $nodeCommand = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
   if ($nodeCommand) { $NodeExecutable = $nodeCommand.Source }
@@ -24,7 +24,7 @@ if (-not $CodexExecutable) {
     if ((Test-Path -LiteralPath $candidate -PathType Leaf) -and (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash -eq $expectedHash) { $CodexExecutable = $candidate; break }
   }
 }
-if (-not $CodexExecutable -or -not (Test-Path -LiteralPath $CodexExecutable -PathType Leaf)) { throw 'The verified Codex CLI was not found. Pass -CodexExecutable for version 0.155.0-alpha.2.6; other builds require adapter revalidation.' }
+if (-not $CodexExecutable -or -not (Test-Path -LiteralPath $CodexExecutable -PathType Leaf)) { throw 'The verified Codex CLI was not found. Pass -CodexExecutable for version 0.146.0-alpha.9.2; other builds require adapter revalidation.' }
 $CodexExecutable = (Resolve-Path -LiteralPath $CodexExecutable).Path
 $actualHash = (Get-FileHash -LiteralPath $CodexExecutable -Algorithm SHA256).Hash
 if ($actualHash -ne $expectedHash) { throw 'Codex binary is unverified. Revalidate this adapter before using a different CLI build.' }

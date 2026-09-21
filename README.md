@@ -20,10 +20,10 @@
 
 桌面适配器需要 Windows、Windows PowerShell 5.1、Node.js 22+、已安装的 Codex 桌面应用与 .NET Framework C# 编译器。服务端没有第三方运行依赖。
 
-当前只接受已验收的 Codex CLI **0.155.0-alpha.2.6**，SHA-256：
+当前只接受已验收的 Codex CLI **0.146.0-alpha.9.2**（随 Codex 桌面版 `26.915.4065.0` 安装），SHA-256：
 
 ```text
-be793ab45adbcbd9fa716df04cb6bc68eb9e353c6e6af20886af45c11abc2413
+bc45017e8239dc150258f69309ced9df6bbcdf5b8e4f346decf780ac0999e226
 ```
 
 构建脚本自动寻找匹配二进制和已安装桌面包。其他构建会被拒绝，需要重新验证适配器；不能只改版本号跳过校验。
