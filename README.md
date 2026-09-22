@@ -1,79 +1,350 @@
 # ThreadBrief
 
-在 Codex 右侧面板放一张任务配置卡片，保存此任务的人设、背景和能力选择。卡片默认折叠为 42px，最大宽度 380px，支持浅色、深色与蓝色滑动开关。
+> A task-scoped persona, context, capability, and version card for Codex.
+> 面向 Codex 的任务级人设、背景、能力与版本配置卡。
 
-这是独立的本地面板与实验性桌面后端适配器。打开面板、保存设置和执行接入分别显示状态；仅打开页面不会替换 Codex 后端。
+[English](#english) · [简体中文](#简体中文)
 
-## 能做什么
+ThreadBrief adds a compact card to each Codex task. It keeps long-lived instructions close to the task, lets the user select task-specific Skills, MCP servers, plugins, and apps, and stores reusable configuration versions without rewriting global Codex settings.
 
-- 人设、背景按轮次从持久配置加入，覆盖普通任务和 Agent 内部继续子任务。
-- 明确开启的 Skill 自动加入后续输入；关闭后停止追加，保留已存在的历史和用户明确调用。
-- MCP 与已核验归属的插件工具在调用前检查本任务开关，关闭阻断、重新开启恢复原有许可，无需强制重载任务。
-- MCP 目录定时读取当前任务的 Codex 运行状态；Skills 与 Apps 主动刷新，旧快照不会作为新任务目录。
-- 配置按主机、账户作用域和任务 UUID 隔离，不改 Codex 全局能力开关、模型、权限或任务环境。
-- 同一主机与账户的任务共享版本内容和名称；恢复共享版本只修改当前任务。
-- 草稿、取消、恢复默认、共享版本恢复、重命名与移除。
+ThreadBrief 为每个 Codex 任务挂载一张紧凑的配置卡。它把长期人设与背景固定在任务旁边，允许用户按任务选择 Skills、MCP、插件和应用，并保存可复用的配置版本，不改写 Codex 的全局设置。
 
-共享版本均可重命名。历史移除是逻辑删除：移除后不能从卡片恢复，内部修订链仍保留以维护版本与并发一致性；被任一任务使用的版本不能移除。这不是磁盘内容擦除。
-
-未编辑人设和背景时不额外注入该内容，未明确开启 Skill 时不自动追加正文。目录刷新在模型输入之外完成；能力开关保持工具 schema 稳定，以减少缓存前缀变化。关闭插件也会暂停卡片自动加入其 Skill，不能清除模型已经看过的内容。
-
-## 配置与启动
-
-桌面适配器需要 Windows、Windows PowerShell 5.1、Node.js 22+、已安装的 Codex 桌面应用与 .NET Framework C# 编译器。服务端没有第三方运行依赖。
-
-当前只接受已验收的 Codex CLI **0.146.0-alpha.9.2**（随 Codex 桌面版 `26.915.4065.0` 安装），SHA-256：
-
-```text
-bc45017e8239dc150258f69309ced9df6bbcdf5b8e4f346decf780ac0999e226
+```mermaid
+flowchart LR
+    C["Codex task<br/>Codex 任务"] --> P["ThreadBrief card<br/>任务配置卡"]
+    R["Codex runtime catalog<br/>Codex 运行时目录"] --> P
+    P --> T[("Task-local state<br/>任务独立状态")]
+    P --> V[("Shared version library<br/>共享版本库")]
+    T --> I["Turn input and tool policy<br/>轮次输入与工具策略"]
+    V -. "restore / 恢复" .-> T
 ```
 
-构建脚本自动寻找匹配二进制和已安装桌面包。其他构建会被拒绝，需要重新验证适配器；不能只改版本号跳过校验。
+---
 
-在项目根目录打开 **Windows PowerShell 5.1**，输入目标任务的真实 UUID，以及为当前账户设置的稳定作用域名称：
+<a id="english"></a>
+
+## English
+
+### Why ThreadBrief
+
+A Codex task often needs durable context: a role, project background, writing style, operating rules, or a particular set of tools. Repeating that context in every message wastes attention and makes long conversations harder to maintain. Putting it in global configuration is too broad because unrelated tasks may need different behavior.
+
+ThreadBrief gives each task its own control surface. The configuration follows the task identity and remains isolated from other tasks. When the card is unchanged, ThreadBrief preserves the original request path: it does not inject persona or Skill content, and it keeps the tool schema stable so normal cache behavior is preserved.
+
+### What it provides
+
+| Area | Behavior |
+| --- | --- |
+| Persona and background | Store durable task instructions without repeating them in every message. |
+| Capability switches | Record task-specific choices for Skills, MCP servers, plugins, and apps in one card. |
+| Live catalog | Refresh available capabilities from the Codex runtime instead of relying on a stale copied directory. |
+| Task isolation | Scope configuration by host, account scope, and Codex task UUID. |
+| Shared versions | Save named configurations in a host/account library and restore one into any task in that scope. |
+| Cache-friendly pass-through | Leave model input and tool registration unchanged when no task override is active. |
+| Local operation | Serve the panel on loopback and keep task data on the local machine. |
+
+A capability switch expresses the policy for the current task. It cannot install software, create credentials, grant permissions, or make a capability available when the Codex runtime does not provide it.
+
+### Scope and version model
+
+ThreadBrief uses two explicit scopes:
+
+- **Task state:** `hostId + accountScope + task UUID`. Persona, background, and capability choices belong to one task only.
+- **Version library:** `hostId + accountScope`. Named versions can be reused by tasks in the same local account scope.
+
+Restoring a shared version copies that configuration into the current task. It does not change another task. Renaming a version updates its shared name, while deletion is refused when a task still references that version.
+
+Use a stable, non-secret value for `accountScope`, and use different values for accounts that must remain separated. ThreadBrief requires an explicit task UUID and deliberately does not guess the active task from conversation history.
+
+### How it works
+
+ThreadBrief has three cooperating parts:
+
+1. **Panel service** — a dependency-light Node.js service exposes the compact card over a local loopback address.
+2. **Local store** — task revisions, bindings, and shared versions are written with checksums and guarded updates.
+3. **Codex adapter** — a per-launch bridge connects the panel to Codex task input and runtime capability information without changing the global Codex profile.
+
+Catalog refresh happens outside the model prompt. The adapter reads the current Codex runtime catalog, while task switches determine which configured capabilities participate in that task. Existing prompt history is not rewritten when a switch changes.
+
+### Requirements
+
+- Windows with Windows PowerShell 5.1
+- Codex desktop for Windows
+- Node.js 22 or newer
+- The .NET Framework C# compiler used by the bridge build script
+- A real Codex task UUID, a host identifier, and a stable account-scope identifier
+
+The native adapter validates the installed Codex executable before launch. If Codex has been updated or the build is unsupported, preflight fails closed. Revalidate with a compatible ThreadBrief revision instead of bypassing that check.
+
+### Install and run
+
+Clone the repository:
+
+```powershell
+git clone https://github.com/liulinlin718-netizen/threadbrief.git
+cd threadbrief
+```
+
+Obtain the task UUID from trusted Codex task metadata or a host integration. Configure the binding from Windows PowerShell:
 
 ```powershell
 $taskId = Read-Host 'Codex task UUID'
-$accountScope = Read-Host 'Stable account scope'
-.\app\Configure-ThreadBrief.ps1 -ThreadId $taskId -HostId local -AccountScope $accountScope
+$accountScope = Read-Host 'Stable local account scope'
+
+.\app\Configure-ThreadBrief.ps1 `
+  -ThreadId $taskId `
+  -HostId local `
+  -AccountScope $accountScope
+```
+
+Run a read-only preflight:
+
+```powershell
 .\app\Start-ThreadBrief-Codex.ps1 -ValidateOnly
 ```
 
-调用者必须提供正确的真实任务绑定。`AccountScope` 是本地隔离键，不是登录凭证或自动账户认证；切换账户时应使用不同名称。工具不从历史记录猜测当前任务。
-
-`Configure-ThreadBrief.ps1` 会在本地生成任务绑定、运行配置与桥接 EXE；它们已被 Git 忽略。可先加 `-ValidateOnly` 只检查依赖，也可用 `-NodeExecutable`、`-CodexExecutable`、`-DesktopExecutable` 显式指定安装位置。
-
-完成预检后，手动完全退出 Codex，再双击 [Start-ThreadBrief.cmd](Start-ThreadBrief.cmd)。启动器不会结束已有任务，发现 Codex 仍运行时会停止。它只向新进程传递适配器入口，不修改全局环境变量；运行中的 Codex 不能热替换后端。
-
-重新进入任务后，在卡片详情中检查连接与页面回执。自动挂载跟随任务创建、恢复和派生；返回 `queued` 只表示打开请求已接受。已有页面仍可编辑，关闭本任务的 Codex App 能力可能关闭自动打开入口。
-
-只运行面板可使用 `app/Start-Panel.ps1`，端口冲突时加 `-Port 6301`。脚本返回本地任务地址，可通过 Codex 的 `open_in_codex` 浏览器目标在右侧打开。恢复原启动方式时，退出接入版，再从原 Codex 图标启动即可。
-
-## 验证范围
-
-真实 Codex 后端配合隔离的本地模型响应夹具已覆盖人设输入、原生 Skill 加入、实际子任务隔离、MCP/插件关闭与恢复、原工具 schema 和用户 hook 保留。单元测试另覆盖目录替换、跨任务共享版本、单任务恢复、存储并发、请求透传与页面服务。
-
-已登录 Apps 的远程调用，以及正常用户实例中每个任务的自动可见挂载，尚未完成端到端验收。App 映射与调用控制代码保留相应状态。显式没有执行环境的任务（`environments: []`）无法运行宿主 hook，目前不支持该执行控制路径；适配器保留原任务环境。
-
-普通 stdio MCP 网关是后备路径，不能代替所有 HTTP、隐式插件或其他执行入口的验证。卡片开关控制已接入的调用路径，不授予原 Agent 没有的权限。
-
-## 开发检查
+Completely exit Codex, then start it through ThreadBrief:
 
 ```powershell
-cd app
-node --test --test-concurrency=1 tests/*.test.mjs native-adapter/*.test.mjs
+.\Start-ThreadBrief.cmd
 ```
 
-Windows PowerShell 检查仅在 Windows 且 PS5.1 可用时运行。真实安装预检需要已生成的本地运行配置；源码 checkout 中会明确跳过。其余测试使用隔离任务与临时存储，不需要账户认证。
+Open the configured task in Codex. The ThreadBrief card is attached to that task. Edit the persona or background, switch capabilities, and save. Other tasks retain their own state, and Codex global configuration remains unchanged.
 
-浏览器检查需要 Playwright 与 Chromium：
+To inspect the panel and local storage without launching the Codex adapter:
 
 ```powershell
-npm install --no-save --package-lock=false playwright
-npx playwright install chromium
-node tests/verify-browser.cjs
+.\app\Start-Panel.ps1
 ```
 
-也可设置 `PLAYWRIGHT_MODULE`、`CHROMIUM_PATH` 使用已有安装。浏览器测试只操作合成任务与测试目录。
+The standalone panel is useful for UI and storage inspection. Task input and capability enforcement require launching Codex through the adapter.
 
-主要代码位于 `app/lib/`、`app/public/` 与 `app/native-adapter/`；早期独立交互示例位于 `preview/thread-config-card.html`。任务内容、访问 token、运行日志、本机能力目录与恢复材料不属于公开源码。
+### Everyday use
+
+1. Open the ThreadBrief card inside the task.
+2. Add only the durable persona and background that should accompany future turns.
+3. Enable the Skills, MCP servers, plugins, and apps needed by this task.
+4. Save the task state, or save it as a named version for reuse.
+5. Restore a shared version when another task needs the same setup; edit the restored copy independently.
+
+Leaving all fields and switches at their defaults preserves the original task context. Disabling a capability affects future routing for that task; it does not erase content already present in conversation history.
+
+### Repository layout
+
+| Path | Purpose |
+| --- | --- |
+| `Start-ThreadBrief.cmd` | Windows entry point for the configured Codex launch. |
+| `app/Configure-ThreadBrief.ps1` | Builds the bridge and creates an explicit task binding. |
+| `app/Start-ThreadBrief-Codex.ps1` | Validates dependencies and launches Codex with the task-scoped adapter. |
+| `app/server.mjs` | Local panel API and static-file service. |
+| `app/public/` | Compact card interface. |
+| `app/lib/` | Storage, binding, catalog, and host-contract modules. |
+| `app/native-adapter/` | Codex bridge, runtime catalog, prompt, and capability policy integration. |
+| `preview/thread-config-card.html` | Standalone interaction preview. |
+
+Generated task data, runtime files, credentials, logs, and verification output are excluded from source control by `.gitignore`.
+
+### Development and verification
+
+The runtime has no third-party production package dependency. From the `app` directory:
+
+```powershell
+npm test
+npm run test:browser
+```
+
+The browser check uses Playwright when it is available. Changes to the adapter should also be verified with `Start-ThreadBrief-Codex.ps1 -ValidateOnly` on the target Windows/Codex build.
+
+### Security and privacy
+
+- Treat persona text, project background, task bindings, and saved versions as potentially sensitive local data.
+- Do not commit `app/data/`, `app/current-thread.json`, `.runtime/`, logs, credentials, or generated bridge configuration.
+- The panel binds to loopback. Do not expose it through a public proxy without adding authentication and transport protection.
+- Capability switches only narrow or select task behavior; they do not override Codex permissions or external service authorization.
+
+Please report security issues privately to the repository owner instead of publishing secrets or exploit details in a public issue.
+
+### Contributing
+
+Issues and pull requests are welcome for reproducible bugs, documentation, compatibility work, and focused feature proposals. Before submitting a change:
+
+1. Keep task identity and account scope explicit.
+2. Preserve pass-through behavior for an unchanged card.
+3. Avoid global Codex configuration changes.
+4. Add focused verification for storage, adapter, or UI behavior that changed.
+5. Remove task content, tokens, machine paths, and runtime artifacts from examples and logs.
+
+### License
+
+This repository does not currently include a license file. No redistribution or modification rights are granted beyond those provided by applicable law. The repository owner should add an explicit open-source license before third-party redistribution or reuse.
+
+### Project notice
+
+ThreadBrief is an independent community project. It is not an official OpenAI product and is not affiliated with or endorsed by OpenAI. Codex and OpenAI are trademarks of their respective owner.
+
+Official background: [Codex app server](https://learn.chatgpt.com/docs/app-server) · [Model Context Protocol in Codex](https://learn.chatgpt.com/docs/extend/mcp)
+
+---
+
+<a id="简体中文"></a>
+
+## 简体中文
+
+### 项目背景
+
+一个 Codex 任务往往需要持续携带固定信息，例如角色设定、项目背景、表达方式、操作规则，或一组特定工具。每轮重复粘贴这些内容会占用注意力，也让长对话更难维护；写进全局配置又会影响需求完全不同的其他任务。
+
+ThreadBrief 为每个任务提供独立的控制面板。配置跟随明确的任务身份，不会串到其他任务。当卡片保持默认且没有启用覆盖时，ThreadBrief 保留原始请求路径：不注入人设或 Skill 内容，也不改变工具结构，从而保留正常的缓存命中条件。
+
+### 项目能力
+
+| 范围 | 行为 |
+| --- | --- |
+| 人设与背景 | 保存长期任务说明，无需在每条消息中重复。 |
+| 能力开关 | 在一张卡片中记录当前任务对 Skills、MCP、插件和应用的选择。 |
+| 实时目录 | 从 Codex 运行时刷新可用能力，不依赖过期的目录副本。 |
+| 任务隔离 | 按主机、账户作用域和 Codex 任务 UUID 隔离配置。 |
+| 共享版本 | 在同一主机与账户作用域中保存命名配置，并恢复到任意任务。 |
+| 缓存友好 | 没有任务覆盖时，不改变模型输入与工具注册。 |
+| 本地运行 | 面板只监听本机回环地址，任务数据保存在本机。 |
+
+能力开关表达的是当前任务的使用策略。它不能安装软件、创建凭据、授予权限，也不能让 Codex 运行时中不存在的能力凭空可用。
+
+### 作用域与版本模型
+
+ThreadBrief 使用两个明确的作用域：
+
+- **任务状态：**`hostId + accountScope + 任务 UUID`。人设、背景和能力选择只属于一个任务。
+- **版本库：**`hostId + accountScope`。同一本地账户作用域下的任务可以复用命名版本。
+
+恢复共享版本时，ThreadBrief 会把该配置复制到当前任务，不会修改其他任务。重命名会更新共享名称；仍有任务引用某个版本时，删除操作会被拒绝。
+
+`accountScope` 应使用稳定且不含秘密的信息；需要隔离的账户应使用不同的值。ThreadBrief 要求显式传入任务 UUID，不会从对话历史中猜测当前任务。
+
+### 工作原理
+
+ThreadBrief 由三部分配合工作：
+
+1. **面板服务**：一个依赖很少的 Node.js 本地服务，通过回环地址提供紧凑配置卡。
+2. **本地存储**：带校验地写入任务修订、绑定和共享版本，并对并发更新进行保护。
+3. **Codex 适配器**：在单次启动范围内，把面板连接到 Codex 的任务输入与运行时能力信息，不改写全局 Codex 配置。
+
+目录刷新发生在模型提示之外。适配器读取当前 Codex 运行时目录，任务开关决定哪些已配置能力参与该任务。切换开关不会重写已经存在的对话历史。
+
+### 环境要求
+
+- Windows 与 Windows PowerShell 5.1
+- Windows 版 Codex 桌面应用
+- Node.js 22 或更高版本
+- 构建桥接程序所需的 .NET Framework C# 编译器
+- 真实的 Codex 任务 UUID、主机标识和稳定的账户作用域标识
+
+原生适配器会在启动前校验已安装的 Codex 可执行文件。如果 Codex 已升级或当前构建不受支持，预检会直接拒绝启动。此时应使用与目标 Codex 构建兼容的 ThreadBrief 修订重新校验，而不是绕过检查。
+
+### 安装与启动
+
+克隆仓库：
+
+```powershell
+git clone https://github.com/liulinlin718-netizen/threadbrief.git
+cd threadbrief
+```
+
+从可信的 Codex 任务元数据或宿主集成中取得任务 UUID，然后在 Windows PowerShell 中配置绑定：
+
+```powershell
+$taskId = Read-Host 'Codex task UUID'
+$accountScope = Read-Host 'Stable local account scope'
+
+.\app\Configure-ThreadBrief.ps1 `
+  -ThreadId $taskId `
+  -HostId local `
+  -AccountScope $accountScope
+```
+
+执行只读预检：
+
+```powershell
+.\app\Start-ThreadBrief-Codex.ps1 -ValidateOnly
+```
+
+完全退出 Codex，再通过 ThreadBrief 启动：
+
+```powershell
+.\Start-ThreadBrief.cmd
+```
+
+在 Codex 中打开已配置的任务，ThreadBrief 卡片会挂载到该任务。可以编辑人设与背景、切换能力并保存。其他任务保留各自状态，Codex 全局配置不会被修改。
+
+如果只想检查面板与本地存储，而不启动 Codex 适配器：
+
+```powershell
+.\app\Start-Panel.ps1
+```
+
+独立面板适合检查 UI 和存储。要让任务输入与能力策略真正生效，必须通过适配器启动 Codex。
+
+### 日常使用
+
+1. 在任务中打开 ThreadBrief 卡片。
+2. 只填写未来轮次需要持续携带的人设与背景。
+3. 启用这个任务需要的 Skills、MCP、插件和应用。
+4. 保存任务状态，或另存为命名版本以便复用。
+5. 其他任务需要同样配置时恢复共享版本，再独立修改恢复后的副本。
+
+所有字段和开关保持默认时，原始任务上下文保持不变。关闭某项能力只影响该任务之后的路由，不会删除对话历史中已经存在的内容。
+
+### 仓库结构
+
+| 路径 | 作用 |
+| --- | --- |
+| `Start-ThreadBrief.cmd` | 配置完成后的 Windows 启动入口。 |
+| `app/Configure-ThreadBrief.ps1` | 构建桥接程序并创建显式任务绑定。 |
+| `app/Start-ThreadBrief-Codex.ps1` | 校验依赖，并使用任务级适配器启动 Codex。 |
+| `app/server.mjs` | 本地面板 API 与静态文件服务。 |
+| `app/public/` | 紧凑卡片界面。 |
+| `app/lib/` | 存储、绑定、目录和宿主契约模块。 |
+| `app/native-adapter/` | Codex 桥接、运行时目录、提示和能力策略集成。 |
+| `preview/thread-config-card.html` | 独立交互预览。 |
+
+生成的任务数据、运行时文件、凭据、日志与验证输出已通过 `.gitignore` 排除，不进入源码版本控制。
+
+### 开发与验证
+
+运行时不依赖第三方生产包。在 `app` 目录中执行：
+
+```powershell
+npm test
+npm run test:browser
+```
+
+浏览器检查会在 Playwright 可用时使用它。修改适配器后，还应在目标 Windows/Codex 构建上执行 `Start-ThreadBrief-Codex.ps1 -ValidateOnly`。
+
+### 安全与隐私
+
+- 人设、项目背景、任务绑定和保存的版本都可能包含敏感的本地信息，应按敏感数据管理。
+- 不要提交 `app/data/`、`app/current-thread.json`、`.runtime/`、日志、凭据或生成的桥接配置。
+- 面板只绑定本机回环地址。若要通过公共代理暴露，必须先增加身份验证与传输保护。
+- 能力开关只会收窄或选择任务行为，不能绕过 Codex 权限或外部服务授权。
+
+安全问题请私下报告给仓库所有者，不要在公开 Issue 中发布秘密信息或可利用细节。
+
+### 参与贡献
+
+欢迎为可复现缺陷、文档、兼容性工作和范围清晰的功能建议提交 Issue 或 Pull Request。提交前请确保：
+
+1. 任务身份与账户作用域始终明确。
+2. 未修改卡片时仍保持原样传递。
+3. 不改写 Codex 全局配置。
+4. 对发生变化的存储、适配器或 UI 行为增加针对性验证。
+5. 从示例和日志中删除任务内容、令牌、机器路径与运行时产物。
+
+### 许可证
+
+当前仓库没有包含许可证文件。除适用法律明确赋予的权利外，目前未授予再分发或修改权。仓库所有者应在允许第三方分发或复用前添加明确的开源许可证。
+
+### 项目声明
+
+ThreadBrief 是独立的社区项目，不是 OpenAI 官方产品，也未获得 OpenAI 的关联或背书。Codex 与 OpenAI 是其各自所有者的商标。
+
+官方背景资料：[Codex app server](https://learn.chatgpt.com/docs/app-server) · [Codex 中的 Model Context Protocol](https://learn.chatgpt.com/docs/extend/mcp)
