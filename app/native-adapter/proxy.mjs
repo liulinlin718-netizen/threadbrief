@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { readFile, mkdir, writeFile, rename, appendFile } from 'node:fs/promises';
+import { readFile, mkdir, appendFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { ThreadStore } from '../lib/store.mjs';
+import { writeDiagnosticJSON as atomicJSON } from '../lib/diagnostic-json.mjs';
 import { relayJsonLines, CONSUME_FRAME } from './framing.mjs';
 import { prepareTurn, createAcceptedReceipt } from './request-overlay.mjs';
 import { readAcceptedReceipt, writeAcceptedReceipt } from './receipt-ledger.mjs';
+import { createTaskScheduler } from './task-scheduler.mjs';
+import { createBackgroundWork } from './background-work.mjs';
 
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const config = JSON.parse(await readFile(path.join(directory, 'runtime-config.json'), 'utf8'));
@@ -29,17 +32,24 @@ const pending = new Map();
 let stopped = false;
 let initialized = false;
 let heartbeat;
+const diagnosticWarnings = new Set();
+const diagnostics = createBackgroundWork({ concurrency: 2, onError: (key, error) => {
+  const category = key.split(':')[0];
+  if (diagnosticWarnings.has(category)) return;
+  diagnosticWarnings.add(category);
+  const code = /^[A-Z_0-9]{1,40}$/u.test(error?.code || '') ? error.code : 'WRITE_FAILED';
+  process.stderr.write(`ThreadBrief ${category} write unavailable (${code}); execution continues.\n`);
+} });
+const catalogs = createBackgroundWork({ concurrency: 2, maxQueued: 64 });
 const idKey = value => JSON.stringify(value);
-async function atomicJSON(file, value) {
-  await mkdir(path.dirname(file), { recursive: true });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(value, null, 2));
-  await rename(temporary, file);
-}
-async function audit(event, extra = {}) {
+function audit(event, extra = {}) {
   // Never log prompts, tool arguments, raw RPC, environment, auth or output text.
-  await mkdir(evidenceDirectory, { recursive: true });
-  await appendFile(path.join(evidenceDirectory, `bridge-${process.pid}.ndjson`), JSON.stringify({ event, at: new Date().toISOString(), pid: process.pid, ...extra }) + '\n');
+  const entry = JSON.stringify({ event, at: new Date().toISOString(), pid: process.pid, ...extra }) + '\n';
+  diagnostics.enqueue(`audit:${event}:${extra.threadId || ''}`, async () => {
+    await mkdir(evidenceDirectory, { recursive: true });
+    await appendFile(path.join(evidenceDirectory, `bridge-${process.pid}.ndjson`), entry);
+  });
+  return Promise.resolve();
 }
 async function fingerprint(file) {
   const digest = createHash('sha256');
@@ -59,6 +69,7 @@ if (!serverMode) {
 } else {
   const binding = JSON.parse(await readFile(config.currentThreadBinding, 'utf8'));
   const store = new ThreadStore(config.dataDirectory);
+  const receiptTails = new Map(), receiptFailures = new Map();
   const probeRunId = process.env.THREADBRIEF_NATIVE_MOUNT_PROBE;
   const probeEnabled = process.env.THREADBRIEF_LAUNCH_KIND === 'desktop-package-diagnostic'
     && /^[0-9a-f-]{36}$/i.test(probeRunId || '');
@@ -87,10 +98,11 @@ if (!serverMode) {
   const taskParents = new Map();
   const promptHookTasks = new Set();
   const trustedHookSources = new Set();
-  const catalogRefreshes = new Set();
   const catalogRefreshedAt = new Map();
+  const closedTasks = new Set();
   const observeThread = thread => {
     if (!scopeForThread(thread?.id || '')) return;
+    closedTasks.delete(thread.id);
     if (typeof thread.cwd === 'string') taskCwds.set(thread.id, thread.cwd);
     const parent = thread.source?.subAgent?.thread_spawn?.parent_thread_id;
     taskParents.set(thread.id, thread.threadSource === 'subagent' && scopeForThread(parent || '')
@@ -99,8 +111,17 @@ if (!serverMode) {
   const updateEvidence = async (threadId, patch = {}) => {
     if (!evidenceWriter || !scopeForThread(threadId)) return;
     const value = { ...taskEvidence.get(threadId), ...patch, bridgePid: process.pid };
+    if (closedTasks.has(threadId)) return;
     taskEvidence.set(threadId, value);
-    await evidenceWriter(config.nativeEvidenceDirectory, scopeForThread(threadId), value);
+    diagnostics.enqueue(`evidence:${threadId}`, () => evidenceWriter(config.nativeEvidenceDirectory, scopeForThread(threadId), value));
+  };
+  const refreshCatalog = (threadId, { force = false } = {}) => {
+    if (!automaticPanel || closedTasks.has(threadId) || (!force && Date.now() - (catalogRefreshedAt.get(threadId) || 0) < 20_000)) return;
+    // Coalesce requests and rate-limit failures too; never retry on every turn.
+    catalogRefreshedAt.set(threadId, Date.now());
+    catalogs.enqueue(threadId, async () => {
+      if (!closedTasks.has(threadId)) await automaticPanel.refreshCatalog({ threadId, waitForObserver: true });
+    });
   };
   if (integrationEnabled) {
     try {
@@ -134,6 +155,7 @@ if (!serverMode) {
             if (!read.error && read.result?.thread?.id === threadId) observeThread(read.result.thread);
           }
           const catalog = await readCapabilityCatalog({ rpc: internalRpc, scope: scopeForThread(threadId), cwd: taskCwds.get(threadId) || path.dirname(config.currentThreadBinding), servers });
+          if (closedTasks.has(threadId)) return;
           taskCatalogs.set(threadId, catalog);
           await updateEvidence(threadId, { catalog: catalog.items, catalogObservedAt: new Date().toISOString(), catalogFailedKinds: catalog.failures.map(kind => ({ skills: 'skill', plugins: 'plugin', apps: 'app' })[kind]), capabilityStatus: taskEvidence.get(threadId)?.capabilityStatus || 'catalog-observed', profileStatus: taskEvidence.get(threadId)?.profileStatus || 'ready' });
         },
@@ -143,7 +165,6 @@ if (!serverMode) {
     }
   }
   const statusFile = path.join(evidenceDirectory, `bridge-${process.pid}.json`);
-  let statusTail = Promise.resolve();
   const writeStatus = () => {
     const snapshot = {
     schemaVersion: 1, pid: process.pid, backendPid: child.pid, initialized, stopped,
@@ -151,9 +172,8 @@ if (!serverMode) {
     updatedAt: new Date().toISOString(), hostId: binding.hostId, accountScope: binding.accountScope,
     profileOverlay: true, skillTurnInput: Boolean(prepareSkills), childProfileHook: Boolean(recordPromptScope), toolPolicyHooks: Boolean(hookRegistration?.enabled), capabilityEnforcement: false, automaticPanelMount: Boolean(automaticPanel),
     };
-    const write = statusTail.then(() => atomicJSON(statusFile, snapshot));
-    statusTail = write.catch(() => {});
-    return write;
+    diagnostics.enqueue('bridge-status', () => atomicJSON(statusFile, snapshot));
+    return Promise.resolve();
   };
   await audit('bridge-started', { backendPid: child.pid });
   await writeStatus();
@@ -161,17 +181,20 @@ if (!serverMode) {
     writeStatus().catch(() => {});
     for (const threadId of taskEvidence.keys()) {
       updateEvidence(threadId).catch(() => {});
-      if (automaticPanel && !catalogRefreshes.has(threadId) && Date.now() - (catalogRefreshedAt.get(threadId) || 0) >= 15_000) {
-        catalogRefreshes.add(threadId);
-        automaticPanel.refreshCatalog({ threadId, waitForObserver: true })
-          .then(refreshed => { if (refreshed) catalogRefreshedAt.set(threadId, Date.now()); })
-          .finally(() => catalogRefreshes.delete(threadId));
-      }
+      refreshCatalog(threadId);
     }
   }, 10000);
   heartbeat.unref();
-  const input = relayJsonLines(process.stdin, child.stdin, async message => {
-    internalRpc?.observeClient(message);
+  const rejectScheduled = (message, code) => {
+    if (message?.id === undefined) return;
+    pending.delete(idKey(message.id));
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, error: {
+      code: code === 'REQUEST_CANCELLED' ? -32800 : -32001,
+      message: code === 'REQUEST_CANCELLED' ? 'Task start cancelled before reaching Codex.'
+        : code === 'ADAPTER_BUSY' ? 'ThreadBrief is busy; retry this task request.' : 'ThreadBrief could not prepare this task request; other tasks remain available.', data: { code },
+    } }) + '\n');
+  };
+  const input = relayJsonLines(process.stdin, child.stdin, async (message, { signal } = {}) => {
     if (message.method === 'initialized') startProbe();
     if (message.method === 'initialize' && message.id !== undefined) pending.set(idKey(message.id), { kind: 'initialize' });
     if (message.method === 'mcpServer/tool/call' && evaluateToolPolicy) {
@@ -244,6 +267,14 @@ if (!serverMode) {
     const scope = scopeForThread(message.params?.threadId || '');
     let plan, skillPlan, profile;
     try {
+      if (scope) {
+        await receiptTails.get(scope.threadId);
+        const retry = receiptFailures.get(scope.threadId);
+        if (retry) {
+          await writeAcceptedReceipt(path.join(evidenceDirectory, 'receipts'), retry);
+          receiptFailures.delete(scope.threadId);
+        }
+      }
       // One immutable profile snapshot per turn. A concurrent panel save must
       // not mix persona and capability choices from different revisions.
       profile = scope ? await store.get(scope) : null;
@@ -258,7 +289,7 @@ if (!serverMode) {
         if (taskParents.get(scope.threadId)) return null;
       }
       if (automaticPanel && scope && Object.entries(profile.overrides).some(([id, mode]) => mode === 'off' && /^(?:mcp|plugin|app):/u.test(id))) {
-        await automaticPanel.refreshCatalog({ threadId: scope.threadId, waitForObserver: true });
+        refreshCatalog(scope.threadId);
       }
       const turnStore = { get: async () => profile };
       const acceptedReceipt = scope ? await readAcceptedReceipt(path.join(evidenceDirectory, 'receipts'), scope) : null;
@@ -282,6 +313,7 @@ if (!serverMode) {
     } catch {
       plan = { status: 'unsupported', reason: 'PROFILE_READ_FAILED' };
     }
+    if (signal?.aborted) return null;
     if (plan.status === 'unsupported') {
       await audit('profile-preparation-failed', { threadId: scope?.threadId, reason: plan.reason });
       // Reject just this request: a broken task card must never terminate the
@@ -301,7 +333,17 @@ if (!serverMode) {
       return skillPlan?.message ?? plan.message;
     }
     return null;
-  }).then(() => { internalRpc?.close(); child.stdin.end(); });
+  }, {
+    scheduler: createTaskScheduler({ onReject: rejectScheduled }),
+    onCancelled: message => rejectScheduled(message, 'REQUEST_CANCELLED'),
+    onTransformError: message => {
+      if (message?.id === undefined || !message?.method || !scopeForThread(message.params?.threadId || '')) return false;
+      rejectScheduled(message, 'TASK_PREPARATION_FAILED');
+      audit('task-preparation-failed', { threadId: message.params.threadId });
+      return true;
+    },
+    observe: message => { if (message) internalRpc?.observeClient(message); },
+  }).then(() => { catalogs.close(); internalRpc?.close(); child.stdin.end(); });
   const output = relayJsonLines(child.stdout, process.stdout, async message => {
     const consumed = internalRpc?.consume(message);
     if (consumed) return consumed;
@@ -341,7 +383,13 @@ if (!serverMode) {
         setImmediate(() => automaticPanel.mount({ threadId }));
       }
     }
-    if (message.method === 'thread/closed') taskEvidence.delete(message.params?.threadId);
+    if (message.method === 'skills/changed') for (const threadId of taskCwds.keys()) refreshCatalog(threadId);
+    if (message.method === 'thread/closed') {
+      const threadId = message.params?.threadId;
+      closedTasks.add(threadId); catalogs.cancel(threadId);
+      for (const map of [taskEvidence, taskCatalogs, taskCwds, taskParents, catalogRefreshedAt]) map.delete(threadId);
+      promptHookTasks.delete(threadId);
+    }
     const request = message.id === undefined ? null : pending.get(idKey(message.id));
     if (!request || message.method) return null;
     pending.delete(idKey(message.id));
@@ -358,17 +406,39 @@ if (!serverMode) {
         await updateEvidence(thread.id, { toolPolicyStatus: 'registered' });
       }
       observeThread(thread);
-      if (taskCatalogs.has(thread.id)) setImmediate(() => automaticPanel.refreshCatalog({ threadId: thread.id }));
+      if (taskCatalogs.has(thread.id)) refreshCatalog(thread.id);
       automaticPanel.observe({ method: request.method, response: message });
     }
     if (request.kind === 'overlay') {
       if (message.error) await audit('profile-request-rejected', { threadId: request.scope.threadId, revision: request.revision, code: message.error.code });
       else if (request.prepared) {
-        const receipt = createAcceptedReceipt({ prepared: request.prepared, response: message });
-        await writeAcceptedReceipt(path.join(evidenceDirectory, 'receipts'), receipt);
-        await store.recordObservation(receipt.scope, { event: 'accepted', status: 'accepted', revision: receipt.revision, turnId: receipt.turnId, detail: 'turn/start accepted the untrusted profile context; model consumption is not verified' });
-        await audit('profile-request-accepted', { threadId: receipt.scope.threadId, revision: receipt.revision, turnId: receipt.turnId });
-        await updateEvidence(receipt.scope.threadId, { profileStatus: 'accepted', profileRevision: receipt.revision });
+        let receipt;
+        try { receipt = createAcceptedReceipt({ prepared: request.prepared, response: message }); }
+        catch {
+          updateEvidence(request.scope.threadId, { profileStatus: 'error' });
+          audit('profile-acceptance-unconfirmed', { threadId: request.scope.threadId });
+          return null;
+        }
+        const previous = receiptTails.get(receipt.scope.threadId) || Promise.resolve();
+        const accepted = previous.then(async () => {
+          try {
+            await writeAcceptedReceipt(path.join(evidenceDirectory, 'receipts'), receipt);
+          } catch {
+            // The backend already accepted this turn. Never hide its response or
+            // kill unrelated tasks because local acceptance persistence failed.
+            receiptFailures.set(receipt.scope.threadId, receipt);
+            await updateEvidence(receipt.scope.threadId, { profileStatus: 'error' });
+            audit('profile-receipt-write-failed', { threadId: receipt.scope.threadId });
+            return;
+          }
+          receiptFailures.delete(receipt.scope.threadId);
+          diagnostics.enqueue(`observation:${receipt.scope.threadId}`, () => store.recordObservation(receipt.scope, { event: 'accepted', status: 'accepted', revision: receipt.revision, turnId: receipt.turnId, detail: 'turn/start accepted the untrusted profile context; model consumption is not verified' }));
+          audit('profile-request-accepted', { threadId: receipt.scope.threadId, revision: receipt.revision, turnId: receipt.turnId });
+          await updateEvidence(receipt.scope.threadId, { profileStatus: 'accepted', profileRevision: receipt.revision });
+        }).catch(() => { receiptFailures.set(receipt.scope.threadId, receipt); }).finally(() => {
+          if (receiptTails.get(receipt.scope.threadId) === accepted) receiptTails.delete(receipt.scope.threadId);
+        });
+        receiptTails.set(receipt.scope.threadId, accepted);
       }
       if (!message.error && request.skillPlan?.changed && message.result?.turn?.id) {
         await audit('skill-input-accepted', { threadId: request.scope.threadId, revision: request.revision, count: request.skillPlan.appendedCapabilities.length });
@@ -380,8 +450,13 @@ if (!serverMode) {
   const shutdown = async code => {
     if (stopped) return;
     stopped = true; clearInterval(heartbeat);
+    catalogs.close();
     internalRpc?.close();
     await writeStatus().catch(() => {});
+    let drainTimer;
+    await Promise.race([Promise.all(receiptTails.values()), new Promise(resolve => { drainTimer = setTimeout(resolve, 1500); })]);
+    clearTimeout(drainTimer);
+    await diagnostics.drain();
     process.exit(code);
   };
   Promise.all([input, output]).catch(async error => {

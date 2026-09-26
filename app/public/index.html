@@ -22,6 +22,7 @@
           <button id="tab-capabilities" type="button" role="tab" aria-selected="false" aria-controls="capabilities-pane" tabindex="-1">能力</button>
         </div>
         <div id="profile-pane" role="tabpanel" aria-labelledby="tab-profile">
+          <p class="detail-note">人设与背景作为本任务协作偏好，下轮读取。恢复默认不会删除已有历史。</p>
           <label class="field" for="persona">人设<textarea id="persona" rows="2" maxlength="8000" placeholder="希望 Agent 如何协作" disabled></textarea></label>
           <label class="field" for="background">背景<textarea id="background" rows="3" maxlength="24000" placeholder="长期目标与项目背景" disabled></textarea></label>
         </div>
@@ -32,6 +33,7 @@
             <button id="category-plugin" type="button" role="tab" data-kind="plugin" aria-selected="false" aria-controls="capability-list" tabindex="-1">插件<span data-count="plugin"></span></button>
             <button id="category-app" type="button" role="tab" data-kind="app" aria-selected="false" aria-controls="capability-list" tabindex="-1">应用<span data-count="app"></span></button>
           </div>
+          <p id="capability-help" class="detail-note"></p>
           <div id="capability-list" role="tabpanel" aria-labelledby="category-skill"></div>
         </div>
         <div class="actions">

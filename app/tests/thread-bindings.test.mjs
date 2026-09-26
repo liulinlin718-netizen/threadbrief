@@ -6,8 +6,8 @@ import path from 'node:path';
 import { openThreadBindings } from '../lib/thread-bindings.mjs';
 import { createPanelService } from '../lib/panel-service.mjs';
 
-const binding = { threadId: '01a0ab14-b92e-73f1-b264-692c656dea98', hostId: 'registry-test-host', accountScope: 'registry-test-account', title: '原任务' };
-const otherId = '01a0ab14-b92e-73f1-b264-692c656dea99';
+const binding = { threadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', hostId: 'registry-test-host', accountScope: 'registry-test-account', title: '原任务' };
+const otherId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'threadbrief-binding-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

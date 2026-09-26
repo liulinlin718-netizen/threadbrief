@@ -82,7 +82,7 @@ async function main() {
     await saveScreenshot(page, '02-profile-light-380.png');
     await page.locator('#tab-capabilities').click();
     await saveScreenshot(page, '03-capabilities-light-380.png');
-    assert.match(await page.locator('#capability-list').innerText(), /默认 · 未确认/);
+    assert.match(await page.locator('#capability-list').innerText(), /跟随 Codex · 未确认/);
     assert.match(await page.locator('#save-status').innerText(), /未接通/);
     assert.equal(await page.locator('.capability-source').count(), 0);
     assert.match(await page.locator('.capability-name').first().getAttribute('title'), /来源：/);
@@ -123,6 +123,10 @@ async function main() {
     if ((await parentSwitch.getAttribute('aria-checked')) !== 'true') await parentSwitch.click();
     await page.locator('#category-skill').click();
     let childSwitch = await switchFor(child.id);
+    assert.equal(await childSwitch.getAttribute('aria-checked'), 'false', 'Native Skill availability must not imply automatic invocation');
+    assert.match(await page.locator('#capability-help').innerText(), /明确调用/);
+    assert.match(await page.locator('#capability-list').innerText(), /跟随 Codex/);
+    checks.push('Inherited Skills remain available to Codex without claiming automatic inclusion');
     if ((await childSwitch.getAttribute('aria-checked')) !== 'true') await childSwitch.click();
     await childSwitch.focus();
     await page.keyboard.press('Space');

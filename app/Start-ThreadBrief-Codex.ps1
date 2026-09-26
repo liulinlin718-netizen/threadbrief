@@ -32,8 +32,8 @@ if (-not (Test-Path -LiteralPath $runtimeFile -PathType Leaf)) { throw 'Run Conf
 $config = Get-Content -LiteralPath $runtimeFile -Raw -Encoding UTF8 | ConvertFrom-Json
 $appExecutable = $config.desktopExecutable
 $dependencies = @($appExecutable, $bridgeExecutable, $config.nodeExecutable, $config.realCodexExecutable,
-  $config.currentThreadBinding, (Join-Path $PSScriptRoot 'Start-Panel.ps1'), (Join-Path $PSScriptRoot 'server.mjs'))
-foreach ($relative in @('proxy.mjs', 'automatic-panel.mjs', 'capability-catalog.mjs', 'app-tool-mapping.mjs',
+  $config.currentThreadBinding, (Join-Path $PSScriptRoot 'Start-Panel.ps1'), (Join-Path $PSScriptRoot 'server.mjs'), (Join-Path $PSScriptRoot 'lib\diagnostic-json.mjs'))
+foreach ($relative in @('proxy.mjs', 'task-scheduler.mjs', 'background-work.mjs', 'automatic-panel.mjs', 'capability-catalog.mjs', 'app-tool-mapping.mjs',
   'skill-turn.mjs', 'tool-policy-registration.mjs', 'tool-policy-hook.mjs', 'hook-scope.mjs', 'prompt-scope.mjs', 'child-profile-hook.mjs',
   'mcp-launch-overlay.mjs', 'mcp-gateway.mjs')) { $dependencies += Join-Path $adapterRoot $relative }
 foreach ($dependency in $dependencies) {

@@ -104,6 +104,9 @@
     seen.add(item.id);
     const parent = parentOf(item);
     if (parent && !requested(parent, seen)) return false;
+    // Skill switches select automatic inclusion, not global discoverability.
+    // A native-enabled Skill at inherit must not look like an explicit invoke.
+    if (item.kind === 'skill') return mode === 'on';
     if (mode !== 'inherit') return mode === 'on';
     if (parent) {
       const parentMode = draft?.overrides[parent.id] || 'inherit';
@@ -114,6 +117,12 @@
 
   function renderCapabilities() {
     const list = $('capability-list');
+    $('capability-help').textContent = {
+      skill: '开启后自动加入后续轮次。默认由 Codex 按需使用；关闭不删除历史，也不取消你的明确调用。',
+      mcp: '仅控制本任务中已接入的调用路径。开启不增加权限；关闭不能撤回已执行操作。',
+      plugin: '统一控制已接入的技能与 MCP 子项。插件的其他入口仍以宿主支持范围为准。',
+      app: '按应用保存本任务选择。实际控制需要已连接应用及可验证的工具映射。',
+    }[kind];
     list.replaceChildren();
     list.setAttribute('aria-labelledby', `category-${kind}`);
     const catalog = state?.catalog || [];
@@ -138,12 +147,17 @@
       text.append(label);
       const description = element('p', 'capability-description');
       description.id = `capability-description-${index}`;
-      const observed = item.executionPolicy === 'error' ? '暂不可用' : parentOff ? '插件已关闭' : !item.available || control === 'unavailable' ? '不可编辑'
+      const itemDirty = mode !== (state?.config.overrides[item.id] || 'inherit');
+      const observed = parentOff ? '插件已关闭' : itemDirty ? '待保存' : item.executionPolicy === 'error' ? '暂不可用' : !item.available || control === 'unavailable' ? '不可编辑'
         : item.inclusion === 'accepted' ? '已加入输入' : item.inclusion === 'next-turn' ? '下轮加入' : item.inclusion === 'stopped' ? '停止追加'
         : item.executionPolicy === 'observed' ? '执行校验已运行' : item.executionPolicy === 'registered' ? '执行校验已注册'
         : /读取失败/.test(item.reason || '') ? '读取失败' : /旧快照/.test(item.reason || '') ? '旧快照'
         : item.effective === true ? '观测开启' : item.effective === false ? '观测关闭' : '未确认';
-      description.textContent = `${mode === 'inherit' ? '默认' : mode === 'on' ? '请求开启' : '请求关闭'} · ${observed}`;
+      const selection = mode === 'inherit' ? '跟随 Codex'
+        : item.kind === 'skill' ? mode === 'on' ? '本任务自动加入' : '停止自动加入'
+        : item.kind === 'plugin' ? mode === 'on' ? '允许已接入能力' : '暂停已接入能力'
+        : mode === 'on' ? '本任务允许调用' : '本任务请求阻止';
+      description.textContent = `${selection} · ${observed}`;
       const detail = [item.name || item.id, item.reason, item.source && `来源：${item.source}`, parentOff && `所属插件“${parent.name || parent.id}”关闭；子项偏好仍保留`].filter(Boolean).join('\n');
       label.title = detail;
       const meta = element('div', 'capability-meta');
@@ -163,7 +177,7 @@
       toggle.dataset.capabilityId = item.id;
       toggle.setAttribute('aria-checked', String(requested(item)));
       toggle.setAttribute('aria-labelledby', label.id);
-      toggle.setAttribute('aria-describedby', description.id);
+      toggle.setAttribute('aria-describedby', `${description.id} capability-help`);
       toggle.title = detail;
       toggle.disabled = busy || !item.available || control === 'unavailable' || parentOff;
       toggle.append(element('span', 'track'));

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { createPanelService } from '../lib/panel-service.mjs';
 
-const binding = { threadId: '01a0ab14-b92e-73f1-b264-692c656dea98', hostId: 'local-test', accountScope: 'test-only', title: '测试任务' };
+const binding = { threadId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', hostId: 'local-test', accountScope: 'test-only', title: '测试任务' };
 async function fixture(t) {
   const directory = await mkdtemp(path.join(tmpdir(), 'threadbrief-api-'));
   const app = await createPanelService({ binding, dataDirectory: path.join(directory, 'data') });

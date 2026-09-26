@@ -1,6 +1,7 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile, rename, unlink, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { writeDiagnosticJSON as atomicJSON } from './diagnostic-json.mjs';
 
 const TTL = 30_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -119,14 +120,6 @@ function sanitize(value, scope) {
 async function boundedJSON(file) {
   if ((await stat(file)).size > 1_000_000) throw new TypeError('Native evidence is too large');
   return JSON.parse(await readFile(file, 'utf8'));
-}
-async function atomicJSON(file, value) {
-  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-  const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(value), { flag: 'wx', mode: 0o600 });
-    await rename(temporary, file);
-  } finally { await unlink(temporary).catch(error => { if (error.code !== 'ENOENT') throw error; }); }
 }
 
 // Trusted local backend API only. Never exposed as an HTTP mutation route.

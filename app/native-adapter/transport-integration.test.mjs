@@ -46,8 +46,8 @@ async function fixture(t) {
   const libDirectory = join(root, 'app', 'lib');
   await mkdir(nativeDirectory, { recursive: true });
   await mkdir(libDirectory, { recursive: true });
-  for (const name of ['proxy.mjs', 'framing.mjs', 'request-overlay.mjs', 'receipt-ledger.mjs']) await copyFile(join(originalDirectory, name), join(nativeDirectory, name));
-  for (const name of ['store.mjs', 'host-contract.mjs']) await copyFile(join(originalDirectory, '..', 'lib', name), join(libDirectory, name));
+  for (const name of ['proxy.mjs', 'task-scheduler.mjs', 'background-work.mjs', 'framing.mjs', 'request-overlay.mjs', 'receipt-ledger.mjs']) await copyFile(join(originalDirectory, name), join(nativeDirectory, name));
+  for (const name of ['diagnostic-json.mjs', 'store.mjs', 'host-contract.mjs']) await copyFile(join(originalDirectory, '..', 'lib', name), join(libDirectory, name));
   let shim;
   if (process.platform === 'win32') {
     try {
@@ -144,6 +144,21 @@ test('real proxy process forwards untouched RPC bytes and drains a large final b
   assert.deepEqual(await f.store.observations(scope), []);
   const evidence = await readdir(f.config.evidenceDirectory);
   assert.equal(evidence.includes('receipts'), false);
+});
+
+test('an unwritable diagnostic and receipt directory preserves accepted responses and unrelated tasks', async t => {
+  const f = await fixture(t);
+  // A regular file where a directory is required is a deterministic I/O error
+  // on Windows too, without changing the user's permissions or real storage.
+  await writeFile(f.config.evidenceDirectory, 'fixture-not-a-directory');
+  await f.store.save(scope, profile(0, 'Fixture profile'));
+  const other = { ...request(), id: 18, params: { ...request().params, threadId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' } };
+  const result = await run(f, Buffer.from([request(), other].map(value => JSON.stringify(value) + '\n').join('')));
+  assert.equal(result.code, 0, result.stderr);
+  assert.deepEqual(result.stdout, await readFile(f.env.FIXTURE_EXPECTED_OUTPUT));
+  const captured = (await readFile(f.env.FIXTURE_CAPTURE, 'utf8')).trim().split(/\r?\n/).map(JSON.parse);
+  assert.equal(captured.length, 2);
+  assert.equal(captured.find(x => x.id === 18).params.additionalContext.threadbrief, undefined);
 });
 
 test('compiled shim preserves CLI argument quoting and persona context survives through accepted receipt storage', async t => {

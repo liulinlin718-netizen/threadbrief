@@ -18,7 +18,7 @@ export async function readCapabilityCatalog({ rpc, scope, cwd, servers }) {
     control: 'preference-only', source: '当前任务 MCP 运行目录',
     reason: server.pluginId === 'codex-app-tools@openai-bundled' && server.name === 'codex_app'
       ? '关闭后自动挂载卡片不可用；已打开的卡片仍可保存'
-      : '修改将在任务重新加载时尝试应用',
+      : '保存本任务调用选择；是否接通执行控制以任务状态为准',
     ...(server.pluginId ? { parentId: `plugin:${server.pluginId}` } : {}),
     configMapping: server.pluginId
       ? { kind: 'plugin-mcp-server', pluginKey: server.pluginId, serverName: server.name, pluginServerName: server.name }
@@ -51,7 +51,7 @@ export async function readCapabilityCatalog({ rpc, scope, cwd, servers }) {
         defaultEnabled: plugin.enabled === true, ...preference, source: '当前任务工作目录的已安装插件',
         reason: plugin.id === 'codex-app-tools@openai-bundled'
           ? '关闭后自动挂载卡片不可用；已打开的卡片仍可保存'
-          : '修改将在任务重新加载时尝试应用', configMapping: { kind: 'plugin', pluginKey: plugin.id },
+          : '控制已接入的 Skill 与 MCP 子项，不代表禁用插件的所有入口', configMapping: { kind: 'plugin', pluginKey: plugin.id },
       });
     }
     if (index === 2) {

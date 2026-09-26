@@ -25,12 +25,16 @@ let pending = Buffer.alloc(0);
 const native = {name:'codex_app',pluginId:'codex-app-tools@openai-bundled',runtimeStatus:'connected',tools:{open:{name:'open_in_codex',inputSchema:{neverPersist:'schema sentinel'}}}};
 const notes = {name:'fixture-notes',pluginId:null,runtimeStatus:'connected',tools:{read:{name:'read_note',inputSchema:{neverPersist:'schema sentinel'}}}};
 function answer(frame) {
+  if(frame.method==='mcpServerStatus/list' && fs.existsSync(process.env.FIXTURE_HOLD_CATALOG) && !fs.existsSync(process.env.FIXTURE_RELEASE_CATALOG)) {
+    setTimeout(()=>answer(frame),20); return;
+  }
   let result;
   switch(frame.method) {
     case 'initialize': result={userAgent:'fixture'}; break;
     case 'thread/resume': result={thread:{id:frame.params.threadId,name:frame.params.threadId[0]==='a'?'Fixture A':'Fixture B',cwd:process.env.FIXTURE_TASK_CWD,status:{type:'idle'}}}; break;
     case 'thread/read': result={thread:{id:frame.params.threadId,cwd:process.env.FIXTURE_TASK_CWD,status:{type:'idle'}}}; break;
     case 'turn/start': result={turn:{id:'fixture-turn-'+frame.id,status:'inProgress',items:[],error:null}}; break;
+    case 'turn/interrupt': result={}; break;
     case 'mcpServerStatus/list': result={data:[native,notes],nextCursor:null}; break;
     case 'mcpServer/tool/call': result={isError:false,content:[{type:'text',text:JSON.stringify({status:'queued',threadId:frame.params.threadId})}]}; break;
     case 'skills/list': result={data:[{cwd:frame.params.cwds[0],skills:[{name:'fixture-skill',path:process.env.FIXTURE_TASK_CWD+'/fixture-skill/SKILL.md',enabled:true}],errors:[]}]}; break;
@@ -64,7 +68,7 @@ async function until(check, description, timeout = 6000) {
     if (value) return value;
     await delay(20);
   }
-  assert.fail(description);
+  assert.fail(typeof description === 'function' ? description() : description);
 }
 
 async function fixture(t, { gateway = false } = {}) {
@@ -73,10 +77,10 @@ async function fixture(t, { gateway = false } = {}) {
   const libDirectory = join(root, 'app', 'lib');
   await mkdir(nativeDirectory, { recursive: true });
   await mkdir(libDirectory, { recursive: true });
-  for (const name of ['proxy.mjs', 'framing.mjs', 'request-overlay.mjs', 'receipt-ledger.mjs', 'internal-rpc.mjs', 'automatic-panel.mjs', 'capability-catalog.mjs', 'capability-overlay.mjs', 'skill-config.mjs', 'skill-turn.mjs', 'mcp-launch-overlay.mjs', 'mcp-policy.mjs', 'app-tool-mapping.mjs']) {
+  for (const name of ['proxy.mjs', 'task-scheduler.mjs', 'background-work.mjs', 'framing.mjs', 'request-overlay.mjs', 'receipt-ledger.mjs', 'internal-rpc.mjs', 'automatic-panel.mjs', 'capability-catalog.mjs', 'capability-overlay.mjs', 'skill-config.mjs', 'skill-turn.mjs', 'mcp-launch-overlay.mjs', 'mcp-policy.mjs', 'app-tool-mapping.mjs']) {
     await copyFile(join(originalDirectory, name), join(nativeDirectory, name));
   }
-  for (const name of ['store.mjs', 'host-contract.mjs', 'thread-bindings.mjs', 'native-evidence.mjs']) {
+  for (const name of ['diagnostic-json.mjs', 'store.mjs', 'host-contract.mjs', 'thread-bindings.mjs', 'native-evidence.mjs']) {
     await copyFile(join(originalDirectory, '..', 'lib', name), join(libDirectory, name));
   }
   const bindingPath = join(root, 'binding.json');
@@ -104,7 +108,8 @@ async function fixture(t, { gateway = false } = {}) {
   const child = spawn(process.execPath, [join(nativeDirectory, 'proxy.mjs'), 'app-server'], {
     cwd: root, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, THREADBRIEF_LAUNCH_KIND: 'desktop-threadbrief', THREADBRIEF_NATIVE_MOUNT_PROBE: '',
-      FIXTURE_CAPTURE: capture, FIXTURE_EXPECTED_OUTPUT: expectedOutput, FIXTURE_TASK_CWD: taskCwd, FIXTURE_GATEWAY: String(gateway) },
+      FIXTURE_CAPTURE: capture, FIXTURE_EXPECTED_OUTPUT: expectedOutput, FIXTURE_TASK_CWD: taskCwd, FIXTURE_GATEWAY: String(gateway),
+      FIXTURE_HOLD_CATALOG: join(root, 'hold-catalog'), FIXTURE_RELEASE_CATALOG: join(root, 'release-catalog') },
   });
   const stdout = [], stderr = [];
   child.stdout.on('data', bytes => stdout.push(bytes));
@@ -174,7 +179,7 @@ async function fixture(t, { gateway = false } = {}) {
       if (value.initialized) return value;
     }
     return null;
-  }, 'Fixture proxy did not initialize');
+  }, () => `Fixture proxy did not initialize; exit=${child.exitCode}; stderr=${Buffer.concat(stderr).toString('utf8')}; replyCount=${Buffer.concat(stdout).toString('utf8').split('\n').filter(Boolean).length}`);
   backendPid = status.backendPid;
   assert.equal(status.automaticPanelMount, true);
   assert.equal(status.capabilityEnforcement, false);
@@ -189,6 +194,25 @@ async function fixture(t, { gateway = false } = {}) {
     },
   };
 }
+
+test('slow live catalog stays off the turn path and does not hold another task cancellation', async t => {
+  const f = await fixture(t);
+  try {
+    await f.send({ id: 1, method: 'thread/resume', params: { threadId: A, cwd: f.taskCwd } });
+    const observed = await f.mounted(A);
+    const capability = observed.evidence.catalog.find(x => x.name === 'fixture-notes');
+    await f.store.save(scope(A), { expectedRevision: 0, persona: '', background: '', overrides: { [capability.id]: 'off' } });
+    await writeFile(join(f.root, 'hold-catalog'), 'hold');
+    const before = (await f.rawFrames()).filter(x => x.value.method === 'mcpServerStatus/list').length;
+    await f.send({ id: 2, method: 'turn/start', params: { threadId: A, input: [{ type: 'text', text: 'Fixture' }] } });
+    await until(async () => (await f.rawFrames()).filter(x => x.value.method === 'mcpServerStatus/list').length > before, 'Expected background refresh');
+    await f.send({ id: 3, method: 'turn/interrupt', params: { threadId: B, turnId: 'fixture-turn-B' } });
+    assert.ok((await f.rawFrames()).some(x => x.value.id === 3), 'Stop must reach backend before catalog is released');
+  } finally {
+    await writeFile(join(f.root, 'release-catalog'), 'release');
+    await f.finish();
+  }
+});
 
 test('real proxy automatically queues each task once while preserving host bytes and suppressing internal responses', async t => {
   const f = await fixture(t);

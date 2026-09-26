@@ -85,7 +85,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       if (native.bridge.profileOverlay && ['ready', 'accepted'].includes(evidence.profileStatus)) {
         integration.context = { status: 'connected', label: '宿主已接通 · 后续轮次读取任务配置' };
         if (evidence.profileStatus === 'accepted' && evidence.profileRevision === config.revision) integration.context = { status: 'accepted', label: '宿主已接受本版本 · 模型消费未确认' };
-      } else if (evidence.profileStatus === 'error') integration.context = { status: 'error', label: '人设请求未被接受 · 本地配置已保留' };
+      } else if (evidence.profileStatus === 'error') integration.context = { status: 'error', label: '人设接入或回执异常 · 本地配置已保留' };
       const capabilityLabels = {
         'catalog-observed': '目录已连接 · 执行控制未确认',
         'pending-reload': '任务选择等待宿主自然恢复后应用',
@@ -151,7 +151,7 @@ export async function createPanelService({ binding, dataDirectory, evidenceDirec
       if (request.headers['sec-fetch-site'] === 'cross-site') throw problem(403, '拒绝跨站请求');
       const url = new URL(request.url, origin);
       if (url.pathname === '/health' && request.method === 'GET') {
-        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.2' })); return;
+        response.end(JSON.stringify({ service: 'ThreadBrief', version: '0.3.3' })); return;
       }
       if (staticFiles.has(url.pathname) && request.method === 'GET') {
         const [file, mime] = staticFiles.get(url.pathname);
